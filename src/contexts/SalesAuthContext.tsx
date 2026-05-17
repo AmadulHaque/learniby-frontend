@@ -1,9 +1,12 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { ApiError, getToken, salesLogin, salesLogout, salesMe, type ApiSalesUser } from "@/lib/api";
 
-export type SalesRole = "admin" | "executive";
+export type SalesRole = "admin" | "manager" | "executive";
 
+// Surface kept compatible with the previous Supabase-backed shape so existing
+// consumers (sales pages + permission helpers) continue to type-check.
+// `rolePermissions` is now always `[]` because the backend already merges
+// role-level and user-level permissions into `permissions`.
 export interface SalesUser {
   id: string;
   email: string;
@@ -17,10 +20,19 @@ export interface SalesUser {
   rolePermissions: string[];
 }
 
+export interface SalesSession {
+  access_token: string;
+}
+
+export interface SalesAuthUser {
+  id: string;
+  email: string;
+}
+
 interface SalesAuthCtx {
   loading: boolean;
-  session: Session | null;
-  authUser: User | null;
+  session: SalesSession | null;
+  authUser: SalesAuthUser | null;
   salesUser: SalesUser | null;
   signIn: (email: string, password: string, remember: boolean) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
@@ -29,89 +41,91 @@ interface SalesAuthCtx {
 
 const Ctx = createContext<SalesAuthCtx | null>(null);
 
+function toSalesUser(api: ApiSalesUser): SalesUser {
+  return {
+    id: api.id,
+    email: api.email,
+    full_name: api.full_name,
+    role: api.role,
+    is_active: api.is_active,
+    phone: api.phone,
+    permissions: api.permissions ?? [],
+    avatar_url: api.avatar_url,
+    designation: api.designation,
+    rolePermissions: [],
+  };
+}
+
+function sessionFromToken(token: string | null): SalesSession | null {
+  return token ? { access_token: token } : null;
+}
+
 export function SalesAuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<SalesSession | null>(null);
   const [salesUser, setSalesUser] = useState<SalesUser | null>(null);
 
-  const fetchSalesUser = async (uid: string | undefined) => {
-    if (!uid) {
-      setSalesUser(null);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("sales_users")
-      .select("id, email, full_name, role, is_active, phone, permissions, avatar_url, designation")
-      .eq("id", uid)
-      .maybeSingle();
-    if (error || !data || !data.is_active) {
-      setSalesUser(null);
-      return;
-    }
-    const { data: rp } = await supabase
-      .from("sales_role_permissions")
-      .select("permissions")
-      .eq("role", (data as { role: string }).role)
-      .maybeSingle();
-    setSalesUser({
-      ...(data as Omit<SalesUser, "rolePermissions">),
-      permissions: (data as SalesUser).permissions ?? [],
-      rolePermissions: (rp?.permissions as string[] | null) ?? [],
-    });
-  };
-
-  useEffect(() => {
-    let mounted = true;
-
-    // Set up listener BEFORE getSession (per Supabase docs)
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      if (!mounted) return;
-      setSession(sess);
-      // Defer DB lookup to avoid deadlock inside listener
-      setTimeout(() => {
-        if (mounted) fetchSalesUser(sess?.user?.id);
-      }, 0);
-    });
-
-    supabase.auth.getSession().then(async ({ data: { session: sess } }) => {
-      if (!mounted) return;
-      setSession(sess);
-      await fetchSalesUser(sess?.user?.id);
-      setLoading(false);
-    });
-
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
+  const applyUser = useCallback((api: ApiSalesUser | null) => {
+    setSalesUser(api ? toSalesUser(api) : null);
+    setSession(sessionFromToken(getToken("sales")));
   }, []);
 
-  const signIn: SalesAuthCtx["signIn"] = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) return { error: error.message };
-
-    // Verify sales_users membership
-    const { data: row } = await supabase
-      .from("sales_users")
-      .select("id, email, full_name, role, is_active, phone, permissions, avatar_url, designation")
-      .eq("id", data.user!.id)
-      .maybeSingle();
-
-    if (!row || !row.is_active) {
-      await supabase.auth.signOut();
-      return { error: "এই অ্যাকাউন্টের Sales Panel-এ অ্যাক্সেস নেই।" };
+  const bootstrap = useCallback(async () => {
+    if (!getToken("sales")) {
+      applyUser(null);
+      setLoading(false);
+      return;
     }
-    await fetchSalesUser(data.user!.id);
-    return {};
+    try {
+      const me = await salesMe();
+      applyUser(me.is_active ? me : null);
+    } catch {
+      applyUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [applyUser]);
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  const signIn: SalesAuthCtx["signIn"] = async (email, password, remember) => {
+    try {
+      const res = await salesLogin(email.trim(), password, remember);
+      if (!res.user.is_active) {
+        return { error: "এই অ্যাকাউন্টের Sales Panel-এ অ্যাক্সেস নেই।" };
+      }
+      applyUser(res.user);
+      return {};
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const fieldErr = e.firstFieldError();
+        return { error: fieldErr ?? e.message };
+      }
+      return { error: "Login failed. Please try again." };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setSalesUser(null);
+    try {
+      await salesLogout();
+    } finally {
+      applyUser(null);
+    }
   };
 
   const refresh = async () => {
-    await fetchSalesUser(session?.user?.id);
+    if (!getToken("sales")) {
+      applyUser(null);
+      return;
+    }
+    try {
+      const me = await salesMe();
+      applyUser(me.is_active ? me : null);
+    } catch {
+      applyUser(null);
+    }
   };
 
   return (
@@ -119,7 +133,7 @@ export function SalesAuthProvider({ children }: { children: ReactNode }) {
       value={{
         loading,
         session,
-        authUser: session?.user ?? null,
+        authUser: salesUser ? { id: salesUser.id, email: salesUser.email } : null,
         salesUser,
         signIn,
         signOut,

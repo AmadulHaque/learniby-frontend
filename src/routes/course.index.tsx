@@ -148,7 +148,7 @@ function Hero() {
           <Sparkles className="h-3.5 w-3.5 text-accent" /> আসসালামু আলাইকুম
         </div>
         <h1 className="mt-4 text-4xl font-extrabold leading-[1.05] sm:text-6xl">
-          {user?.user_metadata?.full_name || "শিক্ষার্থী"},<br />
+          {user?.profile?.full_name || "শিক্ষার্থী"},<br />
           <span className="text-accent">শেখা চালিয়ে</span> যান।
         </h1>
         <p className="mt-4 max-w-xl text-base opacity-90 sm:text-lg">
