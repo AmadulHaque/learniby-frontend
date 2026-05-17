@@ -22,7 +22,6 @@ import {
   Paperclip,
   FileText,
   Download,
-  Image as ImageIcon,
   RefreshCw,
   Smartphone,
   Sparkles,
@@ -57,7 +56,8 @@ import {
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { DealAndPayments } from "./DealAndPayments";
 import { StatusChangeDialog, platformLabel } from "./StatusChangeDialog";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
+import { apiBaseUrl } from "@/lib/api/client";
 import {
   BUDGET_OPTIONS,
   getCourseMeta,
@@ -176,13 +176,7 @@ export function LeadDetail({ leadId }: Props) {
       patch.deal_value = null;
       patch.won_at = null;
     }
-    const { data: updated, error: updErr } = await supabase
-      .from("leads")
-      .update(patch)
-      .eq("id", lead.id)
-      .select()
-      .single();
-    if (updErr) throw updErr;
+    const updated = await sales.leads.update(lead.id, patch as Parameters<typeof sales.leads.update>[1]);
 
     // 2) Log activity (status_changed) with platform + note in description.
     const amountLine =
@@ -190,9 +184,8 @@ export function LeadDetail({ leadId }: Props) {
         ? `\nFinal Sale Amount: ₹${Number(dealAmount).toLocaleString("en-IN")}`
         : "";
     const desc = `${fromLabel} → ${toLabel} · via ${pLabel}\n${note}${amountLine}`;
-    await supabase.from("lead_activities").insert({
-      lead_id: lead.id,
-      type: "status_changed" as ActivityType,
+    await sales.leadActivities.create(lead.id, {
+      type: "status_changed",
       title: `Status: ${fromLabel} → ${toLabel}`,
       description: desc,
       meta: {
@@ -201,35 +194,26 @@ export function LeadDetail({ leadId }: Props) {
         platform,
         ...(movingToWon ? { deal_value: dealAmount } : {}),
       },
-      created_by: salesUser?.id ?? null,
     });
 
     // 3) Save note in lead_notes for the notes timeline.
-    await supabase.from("lead_notes").insert({
-      lead_id: lead.id,
+    await sales.leadNotes.create(lead.id, {
       body: `[${fromLabel} → ${toLabel} · ${pLabel}] ${note}${amountLine}`,
-      author_id: salesUser?.id ?? null,
     });
 
-    // 4) Bump activity timestamp.
-    await supabase
-      .from("leads")
-      .update({ last_activity_at: new Date().toISOString() })
-      .eq("id", lead.id);
-
-    setLead(updated as Lead);
+    setLead(updated as unknown as Lead);
     void refreshActivities();
     void refreshNotes();
     toast.success(`Moved to ${toLabel}`);
   };
 
   const refreshNotes = async () => {
-    const { data } = await supabase
-      .from("lead_notes")
-      .select("*, attachments:lead_note_attachments(*)")
-      .eq("lead_id", leadId)
-      .order("created_at", { ascending: false });
-    setNotes((data as LeadNote[]) ?? []);
+    try {
+      const data = await sales.leadNotes.list(leadId);
+      setNotes((data as unknown as LeadNote[]) ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load notes");
+    }
   };
 
 
@@ -240,98 +224,62 @@ export function LeadDetail({ leadId }: Props) {
 
   const load = async () => {
     setLoading(true);
-    const [leadRes, actRes, notesRes, repsRes] = await Promise.all([
-      supabase.from("leads").select("*").eq("id", leadId).maybeSingle(),
-      supabase
-        .from("lead_activities")
-        .select("*")
-        .eq("lead_id", leadId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("lead_notes")
-        .select("*, attachments:lead_note_attachments(*)")
-        .eq("lead_id", leadId)
-        .order("created_at", { ascending: false }),
-      supabase.from("sales_users").select("id, full_name, role"),
-    ]);
-    if (leadRes.error || !leadRes.data) {
-      toast.error("Lead not found");
-      navigate({ to: "/sales/leads" });
-      return;
-    }
-    let leadData = leadRes.data as Lead;
+    try {
+      const [leadRow, repsList] = await Promise.all([
+        sales.leads.show(leadId, "activities,notes.attachments,payments,followUps"),
+        sales.salesUsers.list(),
+      ]);
+      let leadData = leadRow as unknown as Lead;
 
-    // Auto-claim: first sales user to open an unassigned lead becomes the owner.
-    // Admins do NOT auto-claim — they're supervising, not working leads.
-    if (!leadData.assigned_to && salesUser?.id && salesUser.role !== "admin") {
-      const { data: claimed, error: claimErr } = await supabase
-        .from("leads")
-        .update({ assigned_to: salesUser.id })
-        .eq("id", leadId)
-        .is("assigned_to", null) // race-safe: only claim if still unassigned
-        .select()
-        .maybeSingle();
-      if (!claimErr && claimed) {
-        leadData = claimed as Lead;
-        await supabase.from("lead_activities").insert({
-          lead_id: leadId,
-          type: "lead_assigned" as ActivityType,
-          title: "Auto-assigned",
-          description: `${salesUser.full_name ?? "Sales user"} claimed this lead by opening it first.`,
-          created_by: salesUser.id,
-        });
-        toast.success("This lead is now assigned to you");
-      } else {
-        // Race lost: someone else claimed it first. Re-fetch and continue —
-        // any sales user can still view/edit the lead (shared access), but
-        // ownership / target attribution belongs to the first claimer.
-        const { data: refetch } = await supabase
-          .from("leads")
-          .select("*")
-          .eq("id", leadId)
-          .maybeSingle();
-        if (!refetch) {
-          toast.error("Lead not found");
-          navigate({ to: "/sales/leads" });
-          return;
+      // Auto-claim: first non-admin sales user to open an unassigned lead claims it.
+      if (!leadData.assigned_to && salesUser?.id && salesUser.role !== "admin") {
+        try {
+          const claimed = await sales.leads.assign(leadId, salesUser.id);
+          leadData = { ...leadData, ...(claimed as unknown as Lead) };
+          await sales.leadActivities.create(leadId, {
+            type: "lead_assigned",
+            title: "Auto-assigned",
+            description: `${salesUser.full_name ?? "Sales user"} claimed this lead by opening it first.`,
+          });
+          toast.success("This lead is now assigned to you");
+        } catch {
+          // Race lost or assign failed — continue with the lead as-is.
         }
-        leadData = refetch as Lead;
       }
-    }
 
-    setLead(leadData);
-    setActivities((actRes.data as LeadActivity[]) ?? []);
-    setNotes((notesRes.data as LeadNote[]) ?? []);
-    setReps(repsRes.data ?? []);
-    setLoading(false);
+      setLead(leadData);
+      setActivities(((leadRow.activities ?? []) as unknown as LeadActivity[]));
+      setNotes(((leadRow.lead_notes ?? []) as unknown as LeadNote[]));
+      setReps(repsList.map((r) => ({ id: r.id, full_name: r.full_name, role: r.role })));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Lead not found");
+      navigate({ to: "/sales/leads" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateLead = async (patch: Partial<Lead>) => {
     if (!lead) return;
     const prev = lead;
     setLead({ ...lead, ...patch });
-    const { data, error } = await supabase
-      .from("leads")
-      .update(patch)
-      .eq("id", lead.id)
-      .select()
-      .single();
-    if (error) {
-      setLead(prev);
-      toast.error(error.message);
-    } else {
-      setLead(data as Lead);
+    try {
+      const data = await sales.leads.update(lead.id, patch as Parameters<typeof sales.leads.update>[1]);
+      setLead(data as unknown as Lead);
       void refreshActivities();
+    } catch (e) {
+      setLead(prev);
+      toast.error(e instanceof Error ? e.message : "Update failed");
     }
   };
 
   const refreshActivities = async () => {
-    const { data } = await supabase
-      .from("lead_activities")
-      .select("*")
-      .eq("lead_id", leadId)
-      .order("created_at", { ascending: false });
-    setActivities((data as LeadActivity[]) ?? []);
+    try {
+      const data = await sales.leadActivities.list(leadId);
+      setActivities((data as unknown as LeadActivity[]) ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load activities");
+    }
   };
 
   if (loading || !lead) {
@@ -752,30 +700,23 @@ function Timeline({
     }
     setSaving(true);
     const meta = ACTIVITY_META[type];
-    const { data, error } = await supabase
-      .from("lead_activities")
-      .insert({
-        lead_id: leadId,
+    try {
+      const data = await sales.leadActivities.create(leadId, {
         type,
         title: meta.label,
         description: desc.trim(),
         duration_minutes: isCallType && duration ? Number(duration) : null,
-        created_by: currentUserId,
-      })
-      .select()
-      .single();
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+      });
+      onLogged(data as unknown as LeadActivity);
+      setDesc("");
+      setDuration("");
+      setAdding(false);
+      toast.success("Activity logged");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to log activity");
+    } finally {
+      setSaving(false);
     }
-    // Bump lead activity timestamp
-    await supabase.from("leads").update({ last_activity_at: new Date().toISOString() }).eq("id", leadId);
-    onLogged(data as LeadActivity);
-    setDesc("");
-    setDuration("");
-    setAdding(false);
-    toast.success("Activity logged");
   };
 
   return (
@@ -915,9 +856,12 @@ function Timeline({
                   <button
                     onClick={async () => {
                       if (!confirm("Delete activity?")) return;
-                      const { error } = await supabase.from("lead_activities").delete().eq("id", a.id);
-                      if (error) toast.error(error.message);
-                      else toast.success("Deleted");
+                      try {
+                        await sales.leadActivities.remove(a.id);
+                        toast.success("Deleted");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Delete failed");
+                      }
                     }}
                     className="opacity-0 transition group-hover:opacity-100"
                   >
@@ -1109,52 +1053,29 @@ function NotesPanel({
   const save = async () => {
     if (!body.trim() && files.length === 0) return;
     setSaving(true);
-    const { data: noteRow, error: noteErr } = await supabase
-      .from("lead_notes")
-      .insert({ lead_id: leadId, body: body.trim() || "(attachment)", author_id: currentUserId })
-      .select()
-      .single();
-    if (noteErr || !noteRow) {
+    let noteRow: { id: string } & Record<string, unknown>;
+    try {
+      noteRow = (await sales.leadNotes.create(leadId, {
+        body: body.trim() || "(attachment)",
+      })) as unknown as { id: string } & Record<string, unknown>;
+    } catch (e) {
       setSaving(false);
-      toast.error(noteErr?.message ?? "Failed to save note");
+      toast.error(e instanceof Error ? e.message : "Failed to save note");
       return;
     }
 
     const uploaded: NoteAttachment[] = [];
     for (const f of files) {
-      const safe = f.name.replace(/[^\w.\-]+/g, "_");
-      const objectPath = `leads/${leadId}/${crypto.randomUUID()}-${safe}`;
-      const up = await supabase.storage.from("lead-attachments").upload(objectPath, f, {
-        contentType: f.type || "application/octet-stream",
-        upsert: false,
-      });
-      if (up.error) {
+      try {
+        const att = await sales.leadNotes.uploadAttachment(noteRow.id, f);
+        uploaded.push(att as unknown as NoteAttachment);
+      } catch {
         toast.error(`Upload failed: ${f.name}`);
-        continue;
       }
-      const { data: attRow, error: attErr } = await supabase
-        .from("lead_note_attachments")
-        .insert({
-          note_id: noteRow.id,
-          lead_id: leadId,
-          file_name: f.name,
-          file_path: objectPath,
-          mime_type: f.type || null,
-          size_bytes: f.size,
-          uploaded_by: currentUserId,
-        })
-        .select()
-        .single();
-      if (attErr) {
-        toast.error(attErr.message);
-        await supabase.storage.from("lead-attachments").remove([objectPath]);
-        continue;
-      }
-      uploaded.push(attRow as NoteAttachment);
     }
 
     setSaving(false);
-    onAdded({ ...(noteRow as LeadNote), attachments: uploaded });
+    onAdded({ ...(noteRow as unknown as LeadNote), attachments: uploaded });
     setBody("");
     setFiles([]);
     setAdding(false);
@@ -1219,14 +1140,12 @@ function NotesPanel({
               <button
                 onClick={async () => {
                   if (!confirm("Delete note?")) return;
-                  // Remove storage objects first (RLS allows owner/admin delete).
-                  const paths = (n.attachments ?? []).map((a) => a.file_path);
-                  if (paths.length) await supabase.storage.from("lead-attachments").remove(paths);
-                  const { error } = await supabase.from("lead_notes").delete().eq("id", n.id);
-                  if (error) toast.error(error.message);
-                  else {
+                  try {
+                    await sales.leadNotes.remove(n.id);
                     onDeleted(n.id);
                     toast.success("Deleted");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Delete failed");
                   }
                 }}
                 className="opacity-0 transition group-hover:opacity-100"
@@ -1246,24 +1165,11 @@ function NotesPanel({
 }
 
 /* ============ NOTE ATTACHMENTS RENDERER ============ */
+function attachmentUrl(filePath: string): string {
+  return `${apiBaseUrl()}/storage/${filePath.replace(/^\/+/, "")}`;
+}
+
 function NoteAttachments({ items }: { items: NoteAttachment[] }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const paths = items.map((i) => i.file_path);
-      const { data, error } = await supabase.storage
-        .from("lead-attachments")
-        .createSignedUrls(paths, 60 * 60); // 1 hour
-      if (error || cancel) return;
-      const map: Record<string, string> = {};
-      data?.forEach((d, i) => { if (d.signedUrl) map[paths[i]] = d.signedUrl; });
-      setUrls(map);
-    })();
-    return () => { cancel = true; };
-  }, [items]);
-
   const isImage = (m?: string | null) => !!m && m.startsWith("image/");
   const fmtSize = (n: number | null) => {
     if (!n) return "";
@@ -1275,7 +1181,7 @@ function NoteAttachments({ items }: { items: NoteAttachment[] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {items.map((a) => {
-        const url = urls[a.file_path];
+        const url = attachmentUrl(a.file_path);
         if (isImage(a.mime_type)) {
           return (
             <a
@@ -1286,13 +1192,7 @@ function NoteAttachments({ items }: { items: NoteAttachment[] }) {
               className="block h-20 w-20 overflow-hidden rounded-md border border-border bg-muted"
               title={a.file_name}
             >
-              {url ? (
-                <img src={url} alt={a.file_name} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                  <ImageIcon className="h-5 w-5" />
-                </div>
-              )}
+              <img src={url} alt={a.file_name} className="h-full w-full object-cover" />
             </a>
           );
         }

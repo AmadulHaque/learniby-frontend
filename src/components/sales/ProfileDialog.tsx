@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
 
 export function ProfileDialog({
   open,
@@ -58,17 +58,25 @@ export function ProfileDialog({
     }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${salesUser.id}/avatar-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from("sales-avatars")
-        .upload(path, file, { upsert: true, cacheControl: "3600" });
-      if (upErr) throw upErr;
-      const { data } = supabase.storage.from("sales-avatars").getPublicUrl(path);
-      setAvatarUrl(data.publicUrl);
-      toast.success("ছবি আপলোড হয়েছে — Save করুন");
+      const updated = await sales.auth.uploadAvatar(file);
+      setAvatarUrl(updated.avatar_url);
+      await refresh();
+      toast.success("ছবি আপলোড হয়েছে");
     } catch (e: any) {
       toast.error(e.message || "Avatar upload ব্যর্থ");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setUploading(true);
+    try {
+      await sales.auth.removeAvatar();
+      setAvatarUrl(null);
+      await refresh();
+    } catch (e: any) {
+      toast.error(e.message || "Avatar remove ব্যর্থ");
     } finally {
       setUploading(false);
     }
@@ -81,16 +89,11 @@ export function ProfileDialog({
     }
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("sales_users")
-        .update({
-          full_name: fullName.trim(),
-          phone: phone.trim() || null,
-          designation: designation.trim() || null,
-          avatar_url: avatarUrl,
-        })
-        .eq("id", salesUser.id);
-      if (error) throw error;
+      await sales.auth.updateProfile({
+        full_name: fullName.trim(),
+        phone: phone.trim() || null,
+        designation: designation.trim() || null,
+      });
       await refresh();
       toast.success("প্রোফাইল আপডেট হয়েছে");
       onOpenChange(false);
@@ -112,24 +115,19 @@ export function ProfileDialog({
     }
     setPwSaving(true);
     try {
-      // Re-auth to verify current password
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: salesUser.email,
-        password: currentPw,
+      await sales.auth.updatePassword({
+        current_password: currentPw,
+        password: newPw,
+        password_confirmation: confirmPw,
       });
-      if (signInErr) {
-        toast.error("Current password ভুল");
-        return;
-      }
-      const { error } = await supabase.auth.updateUser({ password: newPw });
-      if (error) throw error;
       toast.success("পাসওয়ার্ড পরিবর্তন হয়েছে");
       setCurrentPw("");
       setNewPw("");
       setConfirmPw("");
       onOpenChange(false);
     } catch (e: any) {
-      toast.error(e.message || "Password change ব্যর্থ");
+      const msg = e?.body?.errors?.current_password?.[0] || e?.message;
+      toast.error(msg || "Password change ব্যর্থ");
     } finally {
       setPwSaving(false);
     }
@@ -184,8 +182,9 @@ export function ProfileDialog({
             {avatarUrl && (
               <button
                 type="button"
-                onClick={() => setAvatarUrl(null)}
-                className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-white shadow ring-2 ring-card transition hover:scale-110"
+                onClick={handleRemoveAvatar}
+                disabled={uploading}
+                className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-white shadow ring-2 ring-card transition hover:scale-110 disabled:opacity-60"
                 title="Remove photo"
               >
                 <X className="h-3 w-3" />

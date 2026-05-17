@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
 import { STATUS_COLORS } from "@/lib/leads";
 
 export interface SalesPriority {
   id: string;
   key: string;
   label: string;
-  color: string; // tailwind color name (blue, amber, ...)
+  color: string;
   sort_order: number;
   is_active: boolean;
   is_default: boolean;
@@ -35,9 +35,14 @@ export function SalesPrioritiesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("sales_priorities").select("*").order("sort_order");
-    setPriorities((data ?? []) as SalesPriority[]);
-    setLoading(false);
+    try {
+      const rows = await sales.taxonomy.priorities.list();
+      setPriorities(rows as SalesPriority[]);
+    } catch {
+      setPriorities([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

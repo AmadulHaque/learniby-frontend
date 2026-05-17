@@ -37,7 +37,8 @@ import {
   Receipt,
   MapPin,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
+import { unwrapList } from "@/lib/api/sales";
 import {
   getCourseMeta,
   avatarFor,
@@ -124,7 +125,6 @@ export default function ReportsPage() {
   const [expenses, setExpenses] = useState<ExpenseSlim[]>([]);
   const [users, setUsers] = useState<SalesUserRow[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpRow[]>([]);
-  const [activities, setActivities] = useState<ActivityRow[]>([]);
 
   const { fromDate, toDate } = useMemo(() => {
     const t = new Date();
@@ -150,49 +150,25 @@ export default function ReportsPage() {
       const toISO = toDate.toISOString();
       const fromDay = fromDate.toISOString().slice(0, 10);
       const toDay = toDate.toISOString().slice(0, 10);
-      const [l, w, ex, u, fu, ac] = await Promise.all([
-        supabase
-          .from("leads")
-          .select("id, status, source, courses, assigned_to, created_at, updated_at, deal_value, won_at, district")
-          .gte("created_at", fromISO)
-          .lte("created_at", toISO),
-        // Won leads keyed by won_at — drives revenue/profit regardless of when the lead was created.
-        supabase
-          .from("leads")
-          .select("id, status, source, courses, assigned_to, created_at, updated_at, deal_value, won_at, district")
-          .not("won_at", "is", null)
-          .gte("won_at", fromISO)
-          .lte("won_at", toISO),
-        supabase
-          .from("expenses")
-          .select("id, category, amount, expense_date")
-          .gte("expense_date", fromDay)
-          .lte("expense_date", toDay),
-        supabase.from("sales_users").select("id, full_name, role, avatar_url"),
-        supabase
-          .from("follow_ups")
-          .select("id, assigned_to, scheduled_at, status, completed_at")
-          .gte("scheduled_at", fromISO)
-          .lte("scheduled_at", toISO),
-        supabase
-          .from("lead_activities")
-          .select(
-            "id, lead_id, type, title, description, created_by, created_at, lead:leads(full_name), rep:sales_users!lead_activities_created_by_fkey(full_name)",
-          )
-          .gte("created_at", fromISO)
-          .lte("created_at", toISO)
-          .order("created_at", { ascending: false })
-          .limit(2000),
-      ]);
-      if (cancel) return;
-      if (l.error) toast.error(l.error.message);
-      setLeads((l.data ?? []) as LeadRow[]);
-      setWonLeads((w.data ?? []) as LeadRow[]);
-      setExpenses((ex.data ?? []) as ExpenseSlim[]);
-      setUsers((u.data ?? []) as SalesUserRow[]);
-      setFollowUps((fu.data ?? []) as FollowUpRow[]);
-      setActivities((ac.data ?? []) as unknown as ActivityRow[]);
-      setLoading(false);
+      try {
+        const [l, w, ex, u, fu] = await Promise.all([
+          sales.leads.listAll({ from: fromISO, to: toISO }),
+          sales.leads.listAll({ won_from: fromISO, won_to: toISO }),
+          sales.expenses.list({ from: fromDay, to: toDay, per_page: 1000 }),
+          sales.salesUsers.list(),
+          sales.followUps.list({ from: fromISO, to: toISO, per_page: 1000 }),
+        ]);
+        if (cancel) return;
+        setLeads(l as unknown as LeadRow[]);
+        setWonLeads(w as unknown as LeadRow[]);
+        setExpenses(unwrapList(ex) as unknown as ExpenseSlim[]);
+        setUsers(u as unknown as SalesUserRow[]);
+        setFollowUps(unwrapList(fu) as unknown as FollowUpRow[]);
+      } catch (err) {
+        if (!cancel) toast.error(err instanceof Error ? err.message : "Failed to load reports");
+      } finally {
+        if (!cancel) setLoading(false);
+      }
     };
     load();
     return () => {
@@ -384,7 +360,9 @@ export default function ReportsPage() {
                 {s.key === "courses" && <CoursesTab leads={leads} />}
                 {s.key === "districts" && <DistrictsTab leads={leads} />}
                 {s.key === "compliance" && <ComplianceTab users={users} followUps={followUps} />}
-                {s.key === "activity" && <ActivityTab activities={activities} users={users} />}
+                {s.key === "activity" && (
+                  <ActivityTab users={users} fromISO={fromDate.toISOString()} toISO={toDate.toISOString()} />
+                )}
               </motion.section>
             );
           })}
@@ -871,7 +849,7 @@ function SourcesTab({ leads }: { leads: LeadRow[] }) {
 function CoursesTab({ leads }: { leads: LeadRow[] }) {
   const { active: activeCourses } = useSalesCourses();
   const courses = activeCourses.map((co) => {
-    const ls = leads.filter((l) => l.courses.includes(co.key));
+    const ls = leads.filter((l) => (l.courses ?? []).includes(co.key));
     const qualified = ls.filter((l) => ["ready_for_class", "convert"].includes(l.status)).length;
     const won = ls.filter((l) => l.status === "convert").length;
     return {
@@ -1029,32 +1007,58 @@ const ACTIVITY_TYPES = [
   "lead_assigned",
 ] as const;
 
-function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: SalesUserRow[] }) {
+function ActivityTab({ users, fromISO, toISO }: { users: SalesUserRow[]; fromISO: string; toISO: string }) {
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [repId, setRepId] = useState<string>("all");
   const [type, setType] = useState<string>("all");
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 50;
+  const [perPage] = useState(50);
+  const [rows, setRows] = useState<ActivityRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const filtered = useMemo(() => {
-    return activities.filter((a) => {
-      if (repId !== "all" && a.created_by !== repId) return false;
-      if (type !== "all" && a.type !== type) return false;
-      if (q) {
-        const s = q.toLowerCase();
-        if (
-          !a.title.toLowerCase().includes(s) &&
-          !(a.description ?? "").toLowerCase().includes(s) &&
-          !(a.lead?.full_name ?? "").toLowerCase().includes(s)
-        )
-          return false;
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQ(q), 350);
+    return () => window.clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ, repId, type, fromISO, toISO]);
+
+  useEffect(() => {
+    let cancel = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await sales.leadActivities.listPaginated({
+          from: fromISO,
+          to: toISO,
+          page,
+          per_page: perPage,
+          ...(type !== "all" ? { type } : {}),
+          ...(repId !== "all" ? { created_by: repId } : {}),
+          ...(debouncedQ ? { q: debouncedQ } : {}),
+        });
+        if (cancel) return;
+        const list = unwrapList(res) as unknown as ActivityRow[];
+        const meta = (res as { meta?: { total?: number } }).meta;
+        setRows(list);
+        setTotal(meta?.total ?? list.length);
+      } catch (err) {
+        if (!cancel) toast.error(err instanceof Error ? err.message : "Failed to load activity");
+      } finally {
+        if (!cancel) setLoading(false);
       }
-      return true;
-    });
-  }, [activities, repId, type, q]);
+    };
+    load();
+    return () => {
+      cancel = true;
+    };
+  }, [page, perPage, debouncedQ, repId, type, fromISO, toISO]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div className="space-y-4">
@@ -1063,20 +1067,14 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setQ(e.target.value)}
             placeholder="Search…"
             className="w-64 rounded-lg border border-border bg-card pl-8 pr-3 py-1.5 text-sm"
           />
         </div>
         <select
           value={repId}
-          onChange={(e) => {
-            setRepId(e.target.value);
-            setPage(1);
-          }}
+          onChange={(e) => setRepId(e.target.value)}
           className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm"
         >
           <option value="all">All reps</option>
@@ -1088,10 +1086,7 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
         </select>
         <select
           value={type}
-          onChange={(e) => {
-            setType(e.target.value);
-            setPage(1);
-          }}
+          onChange={(e) => setType(e.target.value)}
           className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm"
         >
           {ACTIVITY_TYPES.map((t) => (
@@ -1100,7 +1095,9 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
             </option>
           ))}
         </select>
-        <span className="text-xs text-muted-foreground">{filtered.length} results</span>
+        <span className="text-xs text-muted-foreground">
+          {loading ? "Loading…" : `${total} results`}
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
@@ -1115,7 +1112,7 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((a) => (
+            {rows.map((a) => (
               <tr key={a.id} className="border-t border-border">
                 <td className="p-3 whitespace-nowrap text-muted-foreground">
                   {new Date(a.created_at).toLocaleString()}
@@ -1130,7 +1127,7 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
                 <td className="p-3 text-muted-foreground">{a.description ?? a.title}</td>
               </tr>
             ))}
-            {pageRows.length === 0 && (
+            {!loading && rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="p-8 text-center text-muted-foreground">
                   No activities match filters
@@ -1147,15 +1144,15 @@ function ActivityTab({ activities, users }: { activities: ActivityRow[]; users: 
         </span>
         <div className="flex gap-1">
           <button
-            disabled={page === 1}
-            onClick={() => setPage((p) => p - 1)}
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
             className="rounded-lg border border-border px-3 py-1 disabled:opacity-50"
           >
             Prev
           </button>
           <button
-            disabled={page === totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            disabled={page >= totalPages || loading}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             className="rounded-lg border border-border px-3 py-1 disabled:opacity-50"
           >
             Next

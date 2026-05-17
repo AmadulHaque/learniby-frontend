@@ -4,7 +4,7 @@ import {
   Receipt, Plane, Car, Coffee, Gift, ShoppingBag, Briefcase, Phone, Mail,
   Sparkles, type LucideIcon,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
 
 export interface ExpenseCategoryRow {
   id: string;
@@ -52,12 +52,14 @@ export function SalesExpenseCategoriesProvider({ children }: { children: ReactNo
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("sales_expense_categories")
-      .select("*")
-      .order("sort_order");
-    setCategories((data ?? []) as ExpenseCategoryRow[]);
-    setLoading(false);
+    try {
+      const rows = await sales.taxonomy.expenseCategories.list();
+      setCategories(rows as ExpenseCategoryRow[]);
+    } catch {
+      setCategories([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

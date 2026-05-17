@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { Loader2, Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
 import { STATUS_COLORS } from "@/lib/leads";
 import {
   BATCH_OPTIONS,
@@ -83,7 +82,6 @@ export function AddLeadModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (open) {
@@ -149,24 +147,20 @@ export function AddLeadModal({
       notes: note.trim() || null,
     };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(payload)
-      .select()
-      .single();
-
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      const created = await sales.leads.create(payload);
+      setSaving(false);
+      setSaved(true);
+      toast.success("Lead added successfully");
+      setTimeout(() => {
+        onCreated(created as unknown as Lead);
+        reset();
+        onClose();
+      }, 600);
+    } catch (e) {
+      setSaving(false);
+      toast.error(e instanceof Error ? e.message : "Failed to create lead");
     }
-    setSaved(true);
-    toast.success("Lead added successfully");
-    setTimeout(() => {
-      onCreated(data as Lead);
-      reset();
-      onClose();
-    }, 600);
   };
 
   const toggleCourse = (c: string) => {

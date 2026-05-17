@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Wallet, Trophy, TrendingUp, Download, Search, ArrowUpRight, Target as TargetIcon, Plus } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
+import { unwrapList } from "@/lib/api/sales";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { formatMoney, monthLabel } from "@/lib/leads";
 import { AddExpenseModal } from "@/components/sales/expenses/AddExpenseModal";
@@ -54,32 +55,35 @@ function AccountingPage() {
     if (!salesUser) return;
     (async () => {
       setLoading(true);
-      const monthDate = `${month}-01`;
-      const [r, l, t] = await Promise.all([
-        isAdmin
-          ? supabase.from("sales_users").select("id,full_name,role").order("full_name")
-          : Promise.resolve({ data: [{ id: salesUser.id, full_name: salesUser.full_name, role: salesUser.role }] }),
-        supabase.from("leads")
-          .select("id,full_name,phone,courses,status,deal_value,won_at,assigned_to,created_at")
-          .gte("won_at", monthStart.toISOString())
-          .lt("won_at", monthEnd.toISOString())
-          .order("won_at", { ascending: false }),
-        supabase.from("sales_targets").select("sales_user_id,target_amount").eq("month", monthDate),
-      ]);
-      const won = (l.data ?? []) as WonLead[];
-      const ids = won.map((w) => w.id);
-      let pays: Payment[] = [];
-      if (ids.length) {
-        const { data: pd } = await supabase.from("sales_payments").select("id,lead_id,amount,paid_at,method").in("lead_id", ids);
-        pays = (pd ?? []) as Payment[];
+      try {
+        const monthDate = `${month}-01`;
+        const [r, won, t] = await Promise.all([
+          isAdmin
+            ? sales.salesUsers.list()
+            : Promise.resolve([{ id: salesUser.id, full_name: salesUser.full_name, role: salesUser.role } as Rep]),
+          sales.leads.listAll({ won_from: monthStart.toISOString(), won_to: monthEnd.toISOString() }),
+          sales.targets.list({ month: monthDate }),
+        ]);
+        const wonList = won as unknown as WonLead[];
+        const ids = wonList.map((w) => w.id);
+        let pays: Payment[] = [];
+        if (ids.length) {
+          const pd = await sales.payments.list({ lead_ids: ids, per_page: 1000 });
+          pays = unwrapList(pd) as unknown as Payment[];
+        }
+        setReps(r as unknown as Rep[]);
+        setWonLeads(wonList);
+        setPayments(pays);
+        const tmap: Record<string, number> = {};
+        for (const row of t as unknown as { sales_user_id: string; target_amount: number }[]) {
+          tmap[row.sales_user_id] = Number(row.target_amount);
+        }
+        setTargets(tmap);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to load");
+      } finally {
+        setLoading(false);
       }
-      setReps((r.data ?? []) as Rep[]);
-      setWonLeads(won);
-      setPayments(pays);
-      const tmap: Record<string, number> = {};
-      for (const row of (t.data ?? []) as { sales_user_id: string; target_amount: number }[]) tmap[row.sales_user_id] = Number(row.target_amount);
-      setTargets(tmap);
-      setLoading(false);
     })();
   }, [salesUser, isAdmin, month, monthStart, monthEnd]);
 

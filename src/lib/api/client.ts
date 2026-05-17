@@ -22,7 +22,7 @@ interface RawRequestOptions {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
-  query?: Record<string, string | number | boolean | null | undefined>;
+  query?: Record<string, string | number | boolean | null | undefined | readonly (string | number)[]>;
   signal?: AbortSignal;
   // Skip Authorization header injection — used by login/refresh endpoints.
   skipAuth?: boolean;
@@ -38,6 +38,13 @@ function buildUrl(path: string, query?: RawRequestOptions["query"]): string {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) {
     if (v === null || v === undefined) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item === null || item === undefined) continue;
+        params.append(`${k}[]`, String(item));
+      }
+      continue;
+    }
     params.append(k, String(v));
   }
   const qs = params.toString();

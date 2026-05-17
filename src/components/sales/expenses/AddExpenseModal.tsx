@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { useSalesAuth } from "@/contexts/SalesAuthContext";
+import { sales } from "@/lib/api";
 import {
   useExpenseCategories,
 } from "@/contexts/SalesExpenseCategoriesContext";
@@ -58,7 +57,6 @@ interface Props {
 }
 
 export function AddExpenseModal({ open, onClose, onSaved, editing }: Props) {
-  const { salesUser } = useSalesAuth();
   const { active, getMeta } = useExpenseCategories();
   const [category, setCategory] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
@@ -99,40 +97,22 @@ export function AddExpenseModal({ open, onClose, onSaved, editing }: Props) {
     }
     setSaving(true);
     try {
+      const payload = {
+        category,
+        amount: n,
+        description: description.trim() || null,
+        expense_date: date,
+        payment_method: paymentMethod || null,
+        paid_to: paidTo.trim() || null,
+      };
+
       if (editing) {
-        const { data, error } = await supabase
-          .from("expenses")
-          .update({
-            category,
-            amount: n,
-            description: description.trim() || null,
-            expense_date: date,
-            payment_method: paymentMethod || null,
-            paid_to: paidTo.trim() || null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", editing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        onSaved(data as ExpenseRow);
+        const data = await sales.expenses.update(editing.id, payload);
+        onSaved(data as unknown as ExpenseRow);
         toast.success("Expense updated");
       } else {
-        const { data, error } = await supabase
-          .from("expenses")
-          .insert({
-            category,
-            amount: n,
-            description: description.trim() || null,
-            expense_date: date,
-            payment_method: paymentMethod || null,
-            paid_to: paidTo.trim() || null,
-            created_by: salesUser?.id ?? null,
-          })
-          .select()
-          .single();
-        if (error) throw error;
-        onSaved(data as ExpenseRow);
+        const data = await sales.expenses.create(payload);
+        onSaved(data as unknown as ExpenseRow);
         toast.success("Expense added");
       }
       onClose();

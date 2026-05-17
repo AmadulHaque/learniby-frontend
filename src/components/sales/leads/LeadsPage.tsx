@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { sales } from "@/lib/api";
 import {
   STATUS_META,
   getStatusMeta,
@@ -112,22 +112,24 @@ export function LeadsPage() {
 
   const loadLeads = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    setLeads((data as Lead[]) ?? []);
-    setLoading(false);
+    try {
+      const rows = await sales.leads.listAll({ sort: "created_at", direction: "desc" });
+      setLeads(rows as unknown as Lead[]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load leads");
+      setLeads([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadReps = async () => {
-    const { data } = await supabase
-      .from("sales_users")
-      .select("id, full_name")
-      .eq("is_active", true)
-      .order("full_name");
-    setReps(data ?? []);
+    try {
+      const rows = await sales.salesUsers.list({ active_only: true });
+      setReps(rows.map((r) => ({ id: r.id, full_name: r.full_name })));
+    } catch {
+      setReps([]);
+    }
   };
 
   // Filter + search + sort
@@ -238,12 +240,13 @@ export function LeadsPage() {
     if (!canDelete) return;
     if (!confirm(`Delete ${selected.size} lead(s)?`)) return;
     const ids = Array.from(selected);
-    const { error } = await supabase.from("leads").delete().in("id", ids);
-    if (error) toast.error(error.message);
-    else {
+    try {
+      await sales.leads.bulkRemove(ids);
       toast.success(`${ids.length} leads deleted`);
       setLeads((all) => all.filter((l) => !selected.has(l.id)));
       setSelected(new Set());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulk delete failed");
     }
   };
 
@@ -965,12 +968,12 @@ function LeadRow({
                   className="text-rose-600 focus:text-rose-600"
                   onClick={async () => {
                     if (!confirm(`Delete ${lead.full_name}?`)) return;
-                    const { error } = await supabase
-                      .from("leads")
-                      .delete()
-                      .eq("id", lead.id);
-                    if (error) toast.error(error.message);
-                    else toast.success("Lead deleted");
+                    try {
+                      await sales.leads.remove(lead.id);
+                      toast.success("Lead deleted");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Delete failed");
+                    }
                   }}
                 >
                   Delete
@@ -1117,11 +1120,11 @@ function LeadsEmptyState({
   );
 }
 
-function CourseChips({ courseKeys }: { courseKeys: string[] }) {
+function CourseChips({ courseKeys }: { courseKeys: string[] | null | undefined }) {
   const { active } = useSalesCourses();
   return (
     <div className="flex flex-wrap gap-1">
-      {courseKeys.map((c) => {
+      {(courseKeys ?? []).map((c) => {
         const m = getCourseMeta(c, active);
         return (
           <span key={c} className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", m.bg, m.text)}>
