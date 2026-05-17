@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /course/admin
+Disallow: /sales
+
+Sitemap: https://course.learniby.com/sitemap.xml

@@ -1,0 +1,11 @@
+# Learniby
+
+> Learniby is a Bangla-language premium recorded-course portal for students and learners.
+
+## Pages
+
+- [Home](/): Learniby landing page — what the platform offers.
+- [Course Portal](/course): Student dashboard for enrolled batches and recorded classes.
+- [Login](/course/login): Sign in to the student course portal.
+- [Register](/course/register): Create a new student account.
+- [Forgot Password](/course/forgot-password): Reset your password.
