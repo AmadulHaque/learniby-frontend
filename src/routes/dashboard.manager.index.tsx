@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Users, Building2, Radio, BookOpen } from "lucide-react";
+import { Batches, ClassSessions } from "@/lib/teacher-api";
 
 export const Route = createFileRoute("/dashboard/manager/")({
   component: ManagerHome,
@@ -13,16 +14,17 @@ function ManagerHome() {
 
   useEffect(() => {
     (async () => {
+      const nowIso = new Date().toISOString();
       const [s, b, c, co] = await Promise.all([
         supabase.from("user_roles").select("user_id", { count: "exact", head: true }).eq("role", "student"),
-        supabase.from("batches").select("id", { count: "exact", head: true }),
-        supabase.from("class_sessions" as any).select("id", { count: "exact", head: true }).gte("scheduled_at", new Date().toISOString()),
+        Batches.list().then((res) => res.data?.length ?? 0).catch(() => 0),
+        ClassSessions.list({ from: nowIso }).then((res) => res.data?.length ?? 0).catch(() => 0),
         supabase.from("courses").select("id", { count: "exact", head: true }),
       ]);
       setStats({
         students: s.count || 0,
-        batches: b.count || 0,
-        sessions: c.count || 0,
+        batches: typeof b === "number" ? b : 0,
+        sessions: typeof c === "number" ? c : 0,
         courses: co.count || 0,
       });
     })();

@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,16 +9,17 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Building2, Plus, Trash2, Loader2, Users } from "lucide-react";
+import { ApiError } from "@/lib/api";
+import { Batches, type BatchRow } from "@/lib/teacher-api";
 
 export const Route = createFileRoute("/dashboard/manager/batches")({
   component: BatchesPage,
 });
 
-type Batch = { id: string; name: string; description?: string | null; created_at: string };
 const PRIMARY = "#7B1CB8";
 
 function BatchesPage() {
-  const [list, setList] = useState<Batch[]>([]);
+  const [list, setList] = useState<BatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", description: "" });
@@ -27,34 +27,45 @@ function BatchesPage() {
 
   const reload = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("batches").select("*").order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    setList((data as any) || []);
-    setLoading(false);
+    try {
+      const res = await Batches.list();
+      setList(res.data ?? []);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "লোড করতে সমস্যা");
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { void reload(); }, []);
 
   const create = async () => {
     if (!form.name.trim()) return toast.error("নাম দিন");
     setSaving(true);
-    const { error } = await supabase.from("batches").insert({
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-    } as any);
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    toast.success("যোগ হয়েছে");
-    setOpen(false);
-    setForm({ name: "", description: "" });
-    reload();
+    try {
+      await Batches.create({
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+      });
+      toast.success("যোগ হয়েছে");
+      setOpen(false);
+      setForm({ name: "", description: "" });
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "সেভ করতে সমস্যা");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const del = async (id: string) => {
     if (!confirm("ডিলিট করবেন?")) return;
-    const { error } = await supabase.from("batches").delete().eq("id", id);
-    if (error) return toast.error(error.message);
-    toast.success("ডিলিট হয়েছে");
-    reload();
+    try {
+      await Batches.remove(id);
+      toast.success("ডিলিট হয়েছে");
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "ডিলিট করতে সমস্যা");
+    }
   };
 
   return (

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,25 +12,19 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Radio, Plus, Loader2, Trash2, ExternalLink, Calendar, Clock } from "lucide-react";
-
-type Batch = { id: string; name: string };
-type Session = {
-  id: string;
-  batch_id: string;
-  title: string;
-  description: string | null;
-  meeting_link: string;
-  scheduled_at: string;
-  duration_min: number;
-  added_by: string | null;
-  created_at: string;
-};
+import { ApiError } from "@/lib/api";
+import {
+  Batches,
+  ClassSessions,
+  type BatchRow,
+  type ClassSessionRow,
+} from "@/lib/teacher-api";
 
 const PRIMARY = "#7B1CB8";
 
 /**
  * Reusable sessions manager.
- * - mode: "manage" (admin/manager) -> can see all batches user has access to
+ * - mode: "manage" (admin/manager) -> can see all batches and all sessions
  * - mode: "teacher" -> only batches assigned via batch_teachers
  */
 export function SessionsManager({
@@ -41,12 +34,12 @@ export function SessionsManager({
   mode: "manage" | "teacher";
   title?: string;
 }) {
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [batches, setBatches] = useState<BatchRow[]>([]);
+  const [sessions, setSessions] = useState<ClassSessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterBatch, setFilterBatch] = useState<string>("all");
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Session | null>(null);
+  const [editing, setEditing] = useState<ClassSessionRow | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     batch_id: "",
@@ -60,39 +53,24 @@ export function SessionsManager({
   const reload = async () => {
     setLoading(true);
     try {
-      let batchQuery = supabase.from("batches").select("id, name").order("name");
-      if (mode === "teacher") {
-        const { data: bt } = await supabase
-          .from("batch_teachers" as any)
-          .select("batch_id");
-        const ids = ((bt as any[]) || []).map((r) => r.batch_id);
-        if (ids.length === 0) {
-          setBatches([]);
-          setSessions([]);
-          setLoading(false);
-          return;
-        }
-        batchQuery = batchQuery.in("id", ids);
-      }
-      const { data: bs, error: be } = await batchQuery;
-      if (be) throw be;
-      setBatches((bs as any) || []);
-
-      const { data: ss, error: se } = await supabase
-        .from("class_sessions" as any)
-        .select("*")
-        .order("scheduled_at", { ascending: false });
-      if (se) throw se;
-      setSessions((ss as any) || []);
-    } catch (e: any) {
-      toast.error(e.message || "লোড করতে সমস্যা");
+      const batchScope = mode === "teacher" ? "mine" : undefined;
+      const sessionScope = mode === "teacher" ? "mine" : undefined;
+      const [bs, ss] = await Promise.all([
+        Batches.list({ scope: batchScope }),
+        ClassSessions.list({ scope: sessionScope, direction: "desc" }),
+      ]);
+      setBatches(bs.data ?? []);
+      setSessions(ss.data ?? []);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "লোড করতে সমস্যা";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    reload();
+    void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -116,7 +94,7 @@ export function SessionsManager({
     setOpen(true);
   };
 
-  const openEdit = (s: Session) => {
+  const openEdit = (s: ClassSessionRow) => {
     setEditing(s);
     setForm({
       batch_id: s.batch_id,
@@ -145,21 +123,17 @@ export function SessionsManager({
         duration_min: Number(form.duration_min) || 60,
       };
       if (editing) {
-        const { error } = await supabase.from("class_sessions" as any).update(payload).eq("id", editing.id);
-        if (error) throw error;
+        await ClassSessions.update(editing.id, payload);
         toast.success("আপডেট হয়েছে");
       } else {
-        const { data: u } = await supabase.auth.getUser();
-        const { error } = await supabase
-          .from("class_sessions" as any)
-          .insert({ ...payload, added_by: u.user?.id });
-        if (error) throw error;
+        await ClassSessions.create(payload);
         toast.success("লিংক যোগ হয়েছে");
       }
       setOpen(false);
       await reload();
-    } catch (e: any) {
-      toast.error(e.message || "সেভ করতে সমস্যা");
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "সেভ করতে সমস্যা";
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -167,10 +141,13 @@ export function SessionsManager({
 
   const del = async (id: string) => {
     if (!confirm("এই সেশন ডিলিট করবেন?")) return;
-    const { error } = await supabase.from("class_sessions" as any).delete().eq("id", id);
-    if (error) return toast.error(error.message);
-    toast.success("ডিলিট হয়েছে");
-    reload();
+    try {
+      await ClassSessions.remove(id);
+      toast.success("ডিলিট হয়েছে");
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "ডিলিট করতে সমস্যা");
+    }
   };
 
   return (
@@ -183,7 +160,7 @@ export function SessionsManager({
         <div className="flex items-center gap-2">
           {batches.length > 1 && (
             <Select value={filterBatch} onValueChange={setFilterBatch}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-45">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
