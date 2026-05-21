@@ -37,9 +37,14 @@ import {
   Receipt,
   MapPin,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import {
-  getCourseMeta,
+  Leads,
+  Activities,
+  Expenses,
+  FollowUps,
+  SalesUsers,
+} from "@/lib/sales-api";
+import {
   avatarFor,
   formatMoney,
   type LeadStatus,
@@ -150,49 +155,30 @@ export default function ReportsPage() {
       const toISO = toDate.toISOString();
       const fromDay = fromDate.toISOString().slice(0, 10);
       const toDay = toDate.toISOString().slice(0, 10);
-      const [l, w, ex, u, fu, ac] = await Promise.all([
-        supabase
-          .from("leads")
-          .select("id, status, source, courses, assigned_to, created_at, updated_at, deal_value, won_at, district")
-          .gte("created_at", fromISO)
-          .lte("created_at", toISO),
-        // Won leads keyed by won_at — drives revenue/profit regardless of when the lead was created.
-        supabase
-          .from("leads")
-          .select("id, status, source, courses, assigned_to, created_at, updated_at, deal_value, won_at, district")
-          .not("won_at", "is", null)
-          .gte("won_at", fromISO)
-          .lte("won_at", toISO),
-        supabase
-          .from("expenses")
-          .select("id, category, amount, expense_date")
-          .gte("expense_date", fromDay)
-          .lte("expense_date", toDay),
-        supabase.from("sales_users").select("id, full_name, role, avatar_url"),
-        supabase
-          .from("follow_ups")
-          .select("id, assigned_to, scheduled_at, status, completed_at")
-          .gte("scheduled_at", fromISO)
-          .lte("scheduled_at", toISO),
-        supabase
-          .from("lead_activities")
-          .select(
-            "id, lead_id, type, title, description, created_by, created_at, lead:leads(full_name), rep:sales_users!lead_activities_created_by_fkey(full_name)",
-          )
-          .gte("created_at", fromISO)
-          .lte("created_at", toISO)
-          .order("created_at", { ascending: false })
-          .limit(2000),
-      ]);
-      if (cancel) return;
-      if (l.error) toast.error(l.error.message);
-      setLeads((l.data ?? []) as LeadRow[]);
-      setWonLeads((w.data ?? []) as LeadRow[]);
-      setExpenses((ex.data ?? []) as ExpenseSlim[]);
-      setUsers((u.data ?? []) as SalesUserRow[]);
-      setFollowUps((fu.data ?? []) as FollowUpRow[]);
-      setActivities((ac.data ?? []) as unknown as ActivityRow[]);
-      setLoading(false);
+      try {
+        const [l, w, ex, u, fu, ac] = await Promise.all([
+          Leads.list({ from: fromISO, to: toISO, per_page: 5000 }),
+          // Won leads keyed by won_at — drives revenue/profit regardless of when the lead was created.
+          Leads.list({ won_from: fromISO, won_to: toISO, per_page: 5000 }),
+          Expenses.list({ from: fromDay, to: toDay, per_page: 5000 }),
+          SalesUsers.list(),
+          FollowUps.list({ from: fromISO, to: toISO, per_page: 5000 }),
+          Activities.listAll({ from: fromISO, to: toISO, per_page: 2000 }),
+        ]);
+        if (cancel) return;
+        setLeads(((l.data ?? []) as unknown as LeadRow[]));
+        setWonLeads(((w.data ?? []) as unknown as LeadRow[]));
+        setExpenses(((ex.data ?? []) as unknown as ExpenseSlim[]));
+        setUsers(((u.data ?? []) as unknown as SalesUserRow[]));
+        setFollowUps(((fu.data ?? []) as unknown as FollowUpRow[]));
+        setActivities(((ac.data ?? []) as unknown as ActivityRow[]));
+      } catch (e) {
+        if (!cancel) {
+          toast.error(e instanceof Error ? e.message : "Failed to load reports");
+        }
+      } finally {
+        if (!cancel) setLoading(false);
+      }
     };
     load();
     return () => {

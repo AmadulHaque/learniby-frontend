@@ -19,8 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-import { useSalesAuth } from "@/contexts/SalesAuthContext";
+import { Leads, Activities, type LeadWritePayload } from "@/lib/sales-api";
 import { useSalesStatuses } from "@/contexts/SalesStatusesContext";
 import type { LeadPriority } from "@/lib/leads";
 
@@ -46,7 +45,6 @@ export function BulkActionsDialog({
   reps: { id: string; full_name: string }[];
   onApplied: (patch: Partial<{ assigned_to: string | null; status: string; priority: LeadPriority }>) => void;
 }) {
-  const { salesUser } = useSalesAuth();
   const { statuses } = useSalesStatuses();
   const [value, setValue] = useState<string>("");
   const [reason, setReason] = useState("");
@@ -112,21 +110,16 @@ export function BulkActionsDialog({
         activityDetails = { to: value, reason: reason || null, bulk: true };
       }
 
-      const { error } = await supabase
-        .from("leads")
-        .update(patch)
-        .in("id", selectedIds);
-      if (error) throw error;
+      const updatePayload = patch as LeadWritePayload;
+      await Promise.all(selectedIds.map((id) => Leads.update(id, updatePayload)));
 
       // Best-effort activity log (ignore errors so UX isn't blocked)
       try {
-        const rows = selectedIds.map((lead_id) => ({
-          lead_id,
-          actor_id: salesUser?.id ?? null,
-          activity_type: activityType,
-          details: activityDetails,
-        }));
-        await supabase.from("lead_activities").insert(rows);
+        await Promise.all(
+          selectedIds.map((leadId) =>
+            Activities.create(leadId, { type: activityType, meta: activityDetails }),
+          ),
+        );
       } catch {
         /* noop */
       }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, GripVertical, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ExpenseCategories } from "@/lib/sales-api";
 import {
   useExpenseCategories,
   EXPENSE_ICON_MAP,
@@ -39,19 +39,22 @@ export function ManageExpenseCategoriesModal({ open, onClose }: Props) {
 
   const onDelete = async (row: ExpenseCategoryRow) => {
     if (!confirm(`Delete category "${row.label}"? Existing expenses keep this category as a label.`)) return;
-    const { error } = await supabase.from("sales_expense_categories").delete().eq("id", row.id);
-    if (error) return toast.error(error.message);
-    toast.success("Category deleted");
-    await reload();
+    try {
+      await ExpenseCategories.remove(row.id);
+      toast.success("Category deleted");
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
   };
 
   const toggleActive = async (row: ExpenseCategoryRow) => {
-    const { error } = await supabase
-      .from("sales_expense_categories")
-      .update({ is_active: !row.is_active })
-      .eq("id", row.id);
-    if (error) return toast.error(error.message);
-    await reload();
+    try {
+      await ExpenseCategories.update(row.id, { is_active: !row.is_active });
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    }
   };
 
   return (
@@ -149,18 +152,12 @@ function CategoryForm({
     const finalKey = (key.trim() || autoKey(label)) || "category";
     setSaving(true);
     try {
+      const payload = { label: label.trim(), key: finalKey, icon, color, sort_order: sortOrder };
       if (initial) {
-        const { error } = await supabase
-          .from("sales_expense_categories")
-          .update({ label: label.trim(), key: finalKey, icon, color, sort_order: sortOrder })
-          .eq("id", initial.id);
-        if (error) throw error;
+        await ExpenseCategories.update(initial.id, payload);
         toast.success("Category updated");
       } else {
-        const { error } = await supabase
-          .from("sales_expense_categories")
-          .insert({ label: label.trim(), key: finalKey, icon, color, sort_order: sortOrder });
-        if (error) throw error;
+        await ExpenseCategories.create(payload);
         toast.success("Category added");
       }
       onSaved();

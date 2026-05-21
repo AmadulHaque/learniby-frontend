@@ -3,7 +3,7 @@ import {
   Facebook, Instagram, Globe, MessageCircle, Users, Search, Sparkles,
   Mail, Phone, Youtube, Linkedin, Twitter, type LucideIcon,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { LeadSources } from "@/lib/sales-api";
 
 export interface SalesSource {
   id: string;
@@ -59,9 +59,14 @@ export function SalesSourcesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("sales_lead_sources").select("*").order("sort_order");
-    setSources((data ?? []) as SalesSource[]);
-    setLoading(false);
+    try {
+      const res = await LeadSources.list();
+      setSources((res.data ?? []) as SalesSource[]);
+    } catch {
+      setSources([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

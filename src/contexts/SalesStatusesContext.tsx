@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { Statuses } from "@/lib/sales-api";
 import type { SalesStatus } from "@/lib/leads";
 
 interface SalesStatusesCtx {
@@ -18,12 +18,14 @@ export function SalesStatusesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("sales_statuses")
-      .select("*")
-      .order("sort_order", { ascending: true });
-    setStatuses((data ?? []) as SalesStatus[]);
-    setLoading(false);
+    try {
+      const res = await Statuses.list();
+      setStatuses((res.data ?? []) as SalesStatus[]);
+    } catch {
+      setStatuses([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

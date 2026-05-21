@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { Leads, SalesUsers } from "@/lib/sales-api";
 import {
   STATUS_META,
   getStatusMeta,
@@ -112,22 +112,34 @@ export function LeadsPage() {
 
   const loadLeads = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
-    setLeads((data as Lead[]) ?? []);
-    setLoading(false);
+    try {
+      const all: Lead[] = [];
+      const PER = 500;
+      let page = 1;
+      while (all.length < 5000) {
+        const res = await Leads.list({ sort: "created_at", direction: "desc", per_page: PER, page });
+        const chunk = (res.data ?? []) as unknown as Lead[];
+        if (chunk.length === 0) break;
+        all.push(...chunk);
+        if (chunk.length < PER) break;
+        page++;
+      }
+      setLeads(all);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load leads");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadReps = async () => {
-    const { data } = await supabase
-      .from("sales_users")
-      .select("id, full_name")
-      .eq("is_active", true)
-      .order("full_name");
-    setReps(data ?? []);
+    try {
+      const res = await SalesUsers.list({ active_only: true });
+      const list = (res.data ?? []) as unknown as { id: string; full_name: string }[];
+      setReps(list.map((r) => ({ id: r.id, full_name: r.full_name })));
+    } catch {
+      setReps([]);
+    }
   };
 
   // Filter + search + sort
@@ -238,13 +250,16 @@ export function LeadsPage() {
     if (!canDelete) return;
     if (!confirm(`Delete ${selected.size} lead(s)?`)) return;
     const ids = Array.from(selected);
-    const { error } = await supabase.from("leads").delete().in("id", ids);
-    if (error) toast.error(error.message);
-    else {
-      toast.success(`${ids.length} leads deleted`);
-      setLeads((all) => all.filter((l) => !selected.has(l.id)));
-      setSelected(new Set());
+    const results = await Promise.allSettled(ids.map((id) => Leads.remove(id)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed === ids.length) {
+      toast.error("Failed to delete");
+      return;
     }
+    if (failed > 0) toast.error(`${failed} delete${failed > 1 ? "s" : ""} failed`);
+    toast.success(`${ids.length - failed} lead${ids.length - failed !== 1 ? "s" : ""} deleted`);
+    setLeads((all) => all.filter((l) => !selected.has(l.id)));
+    setSelected(new Set());
   };
 
   const exportCsv = () => {
@@ -965,12 +980,12 @@ function LeadRow({
                   className="text-rose-600 focus:text-rose-600"
                   onClick={async () => {
                     if (!confirm(`Delete ${lead.full_name}?`)) return;
-                    const { error } = await supabase
-                      .from("leads")
-                      .delete()
-                      .eq("id", lead.id);
-                    if (error) toast.error(error.message);
-                    else toast.success("Lead deleted");
+                    try {
+                      await Leads.remove(lead.id);
+                      toast.success("Lead deleted");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Delete failed");
+                    }
                   }}
                 >
                   Delete

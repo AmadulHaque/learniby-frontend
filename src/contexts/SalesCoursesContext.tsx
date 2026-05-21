@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { Courses } from "@/lib/sales-api";
 
 export interface SalesCourse {
   id: string;
@@ -37,22 +37,36 @@ interface Ctx {
 
 const C = createContext<Ctx | null>(null);
 
+interface ApiCourse extends SalesCourse {
+  fields?: SalesCourseField[];
+}
+
 export function SalesCoursesProvider({ children }: { children: ReactNode }) {
   const [courses, setCourses] = useState<SalesCourse[]>([]);
   const [fields, setFields] = useState<SalesCourseField[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [c, f] = await Promise.all([
-      supabase.from("sales_courses").select("*").order("sort_order"),
-      supabase.from("sales_course_fields").select("*").order("sort_order"),
-    ]);
-    setCourses((c.data ?? []) as SalesCourse[]);
-    setFields(((f.data ?? []) as SalesCourseField[]).map((x) => ({
-      ...x,
-      options: Array.isArray(x.options) ? x.options : [],
-    })));
-    setLoading(false);
+    try {
+      const res = await Courses.list();
+      const rows = (res.data ?? []) as ApiCourse[];
+      setCourses(rows.map(({ fields: _f, ...c }) => c) as SalesCourse[]);
+      const flatFields: SalesCourseField[] = [];
+      for (const c of rows) {
+        for (const f of c.fields ?? []) {
+          flatFields.push({
+            ...f,
+            options: Array.isArray(f.options) ? f.options : [],
+          });
+        }
+      }
+      setFields(flatFields);
+    } catch {
+      setCourses([]);
+      setFields([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

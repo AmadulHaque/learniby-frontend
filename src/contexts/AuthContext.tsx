@@ -1,112 +1,183 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { api, apiPost, ApiError, tokenStore } from "@/lib/api";
 
-type Role = "admin" | "manager" | "teacher" | "student" | null;
+export type Role = "admin" | "manager" | "teacher" | "student" | null;
+
+export interface UserProfile {
+  full_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  institution: string | null;
+  status: string | null;
+  student_id: string | null;
+  batch_number: string | null;
+  is_master: boolean;
+}
+
+export interface ApiUser {
+  id: string;
+  email: string;
+  email_verified_at: string | null;
+  roles: string[];
+  highest_role: Role;
+  profile: UserProfile | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+interface LoginResponse {
+  user: ApiUser;
+  access_token: string;
+  token_type: "Bearer";
+  expires_at: string;
+  refresh_expires_at: string;
+}
+
+/** Compatibility shim — old code expects a Supabase-style `session.access_token`. */
+export interface SessionShim {
+  access_token: string;
+  user: { id: string; email: string };
+}
 
 interface AuthCtx {
-  user: User | null;
-  session: Session | null;
+  user: ApiUser | null;
+  session: SessionShim | null;
   role: Role;
   isMaster: boolean;
   isAdminLike: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
+  /** Alias for refresh() to match old API. */
   refreshRole: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<Role>(null);
-  const [isMaster, setIsMaster] = useState(false);
-  const [loading, setLoading] = useState(true);
+function resolveRole(user: ApiUser | null): Role {
+  if (!user) return null;
+  const roles = user.roles ?? [];
+  if (roles.includes("admin")) return "admin";
+  if (roles.includes("manager")) return "manager";
+  if (roles.includes("teacher")) return "teacher";
+  if (roles.includes("student")) return "student";
+  return (user.highest_role as Role) ?? null;
+}
 
-  const loadRole = async (uid: string) => {
-    const [{ data: roleRows }, { data: profile }] = await Promise.all([
-      supabase.from("user_roles").select("role").eq("user_id", uid),
-      supabase.from("profiles").select("is_master").eq("id", uid).maybeSingle(),
-    ]);
-    setIsMaster(!!(profile as any)?.is_master);
-    if (!roleRows || roleRows.length === 0) {
-      setRole(null);
-      return;
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<ApiUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const bootstrapped = useRef(false);
+
+  const fetchMe = async () => {
+    try {
+      const me = await api<ApiUser>({ path: "/auth/me", audience: "user" });
+      setUser(me);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        tokenStore.clear();
+        setUser(null);
+      } else {
+        throw e;
+      }
     }
-    const roles = roleRows.map((r) => r.role);
-    if (roles.includes("admin")) setRole("admin");
-    else if (roles.includes("manager")) setRole("manager");
-    else if (roles.includes("teacher")) setRole("teacher");
-    else setRole("student");
   };
 
   useEffect(() => {
-    // Listener FIRST
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        // defer DB call to avoid deadlock
-        setTimeout(() => loadRole(s.user.id), 0);
-      } else {
-        setRole(null);
-        setIsMaster(false);
+    if (bootstrapped.current) return;
+    bootstrapped.current = true;
+    (async () => {
+      try {
+        if (tokenStore.token && tokenStore.audience === "user") {
+          await fetchMe();
+        } else if (!tokenStore.token) {
+          // Attempt silent refresh via cookie (works if user already logged in elsewhere)
+          // Skip if a sales session is active to avoid stealing audience.
+          if (tokenStore.audience === null || tokenStore.audience === "user") {
+            try {
+              const data = await api<LoginResponse>({
+                method: "POST",
+                path: "/auth/refresh",
+                audience: "user",
+                skipAuth: true,
+                skipRefresh: true,
+              });
+              tokenStore.set({
+                accessToken: data.access_token,
+                expiresAt: data.expires_at,
+                audience: "user",
+              });
+              setUser(data.user);
+            } catch {
+              /* no session — fine */
+            }
+          }
+        }
+      } finally {
+        setLoading(false);
       }
-    });
-
-    // Then existing session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) loadRole(s.user.id).finally(() => setLoading(false));
-      else setLoading(false);
-    });
-
-    return () => sub.subscription.unsubscribe();
+    })();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
-
-    // IP lock check — ভিন্ন IP হলে account lock + signOut
+  const signIn: AuthCtx["signIn"] = async (email, password) => {
     try {
-      const token = data.session?.access_token;
-      if (token) {
-        const { verifyLoginIp } = await import("@/server/ipLock");
-        const res = await verifyLoginIp({ data: { accessToken: token } });
-        if (!res.ok && res.status === "ip_locked") {
-          await supabase.auth.signOut();
-          setRole(null);
-          return {
-            error:
-              "নিরাপত্তার জন্য আপনার একাউন্ট নতুন IP থেকে লগইনের কারণে লক করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।",
-          };
-        }
+      const data = await apiPost<LoginResponse>("/auth/login", { email, password });
+      tokenStore.set({
+        accessToken: data.access_token,
+        expiresAt: data.expires_at,
+        audience: "user",
+      });
+      setUser(data.user);
+      return {};
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const firstField = e.errors ? Object.values(e.errors)[0]?.[0] : undefined;
+        return { error: firstField || e.message || "Login failed." };
       }
-    } catch (e: any) {
-      console.error("IP verify failed", e);
+      return { error: "Network error. Please try again." };
     }
-
-    return {};
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setRole(null);
-    setIsMaster(false);
+    try {
+      await apiPost("/auth/logout");
+    } catch {
+      /* ignore */
+    }
+    tokenStore.clear();
+    setUser(null);
   };
 
-  const refreshRole = async () => {
-    if (user) await loadRole(user.id);
+  const refresh = async () => {
+    if (!tokenStore.token) return;
+    await fetchMe();
   };
 
+  const role = resolveRole(user);
+  const isMaster = !!user?.profile?.is_master;
   const isAdminLike = role === "admin" || role === "manager" || role === "teacher";
 
+  const session: SessionShim | null =
+    user && tokenStore.token
+      ? { access_token: tokenStore.token, user: { id: user.id, email: user.email } }
+      : null;
+
   return (
-    <Ctx.Provider value={{ user, session, role, isMaster, isAdminLike, loading, signIn, signOut, refreshRole }}>
+    <Ctx.Provider
+      value={{
+        user,
+        session,
+        role,
+        isMaster,
+        isAdminLike,
+        loading,
+        signIn,
+        signOut,
+        refresh,
+        refreshRole: refresh,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );

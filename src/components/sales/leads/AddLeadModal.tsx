@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { Leads } from "@/lib/sales-api";
 import { STATUS_COLORS } from "@/lib/leads";
 import {
   BATCH_OPTIONS,
@@ -126,47 +126,40 @@ export function AddLeadModal({
     if (Object.keys(errs).length > 0) return;
 
     setSaving(true);
-    const payload = {
-      full_name: fullName.trim(),
-      phone: phone.trim(),
-      secondary_phone: secondaryPhone.trim() || null,
-      email: email.trim() || null,
-      whatsapp: whatsapp.trim() || null,
-      city: city.trim() || null,
-      state: state.trim() || null,
-      source,
-      campaign_name: campaign.trim() || null,
-      courses,
-      course_data: courseData,
-      priority,
-      child_age: childAge ? Number(childAge) : null,
-      district: district.trim() || null,
-      student_class: studentClass.trim() || null,
-      batch_preference: batch || null,
-      budget_range: budget || null,
-      assigned_to: assignedTo || null,
-      created_by: currentUserId,
-      notes: note.trim() || null,
-    };
-
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(payload)
-      .select()
-      .single();
-
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      const data = await Leads.create({
+        full_name: fullName.trim(),
+        phone: phone.trim(),
+        secondary_phone: secondaryPhone.trim() || null,
+        email: email.trim() || null,
+        whatsapp: whatsapp.trim() || null,
+        city: city.trim() || null,
+        state: state.trim() || null,
+        source,
+        campaign_name: campaign.trim() || null,
+        courses,
+        course_data: courseData,
+        priority,
+        child_age: childAge ? Number(childAge) : null,
+        district: district.trim() || null,
+        student_class: studentClass.trim() || null,
+        batch_preference: batch || null,
+        budget_range: budget || null,
+        assigned_to: assignedTo || null,
+        notes: note.trim() || null,
+      });
+      setSaved(true);
+      toast.success("Lead added successfully");
+      setTimeout(() => {
+        onCreated(data as unknown as Lead);
+        reset();
+        onClose();
+      }, 600);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add lead");
+    } finally {
+      setSaving(false);
     }
-    setSaved(true);
-    toast.success("Lead added successfully");
-    setTimeout(() => {
-      onCreated(data as Lead);
-      reset();
-      onClose();
-    }, 600);
   };
 
   const toggleCourse = (c: string) => {

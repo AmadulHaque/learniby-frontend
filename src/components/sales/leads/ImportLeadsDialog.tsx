@@ -25,9 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
-import { useSalesAuth } from "@/contexts/SalesAuthContext";
-import { useSalesSources } from "@/contexts/SalesSourcesContext";
+import { Leads, Activities, type LeadWritePayload } from "@/lib/sales-api";
 import { cn } from "@/lib/utils";
 
 type FieldKey =
@@ -219,7 +217,6 @@ export function ImportLeadsDialog({
   statusesValid,
   coursesValid,
 }: Props) {
-  const { salesUser } = useSalesAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [fileName, setFileName] = useState("");
@@ -333,7 +330,6 @@ export function ImportLeadsDialog({
       courses: [],
       course_data: {},
       additional_fields: {},
-      created_by: salesUser?.id ?? null,
     };
     headers.forEach((_h, i) => {
       const field = mapping[i];
@@ -431,22 +427,22 @@ export function ImportLeadsDialog({
         }
         return;
       }
-      // Fetch existing leads (paged) — pull only the columns we need for matching + merge
-      const cols =
-        "id, full_name, phone, secondary_phone, whatsapp, email, status, courses, course_data, city, state, campaign_name, child_age, district, student_class, batch_preference, budget_range, priority, additional_fields";
+      // Fetch existing leads (paged) — for matching + merge
       const all: DupExisting[] = [];
-      const PAGE = 1000;
-      let from = 0;
+      const PAGE = 500;
+      let page = 1;
       // Cap at 20k existing leads to stay safe; org sizes beyond this are rare here
-      while (from < 20000) {
-        const { data, error } = await supabase
-          .from("leads")
-          .select(cols)
-          .range(from, from + PAGE - 1);
-        if (error || !data || data.length === 0) break;
-        all.push(...(data as unknown as DupExisting[]));
-        if (data.length < PAGE) break;
-        from += PAGE;
+      while (all.length < 20000) {
+        try {
+          const res = await Leads.list({ per_page: PAGE, page });
+          const data = (res.data ?? []) as unknown as DupExisting[];
+          if (data.length === 0) break;
+          all.push(...data);
+          if (data.length < PAGE) break;
+          page++;
+        } catch {
+          break;
+        }
       }
       if (cancelled) return;
 
@@ -548,7 +544,6 @@ export function ImportLeadsDialog({
       patch.additional_fields = mergedAdd;
     }
 
-    patch.last_activity_at = new Date().toISOString();
     return patch;
   };
 
@@ -586,14 +581,18 @@ export function ImportLeadsDialog({
     let errors = 0;
     const total = toInsert.length + toMerge.length + skipped;
 
-    // 1) Insert new
-    const BATCH = 100;
+    // 1) Insert new — fan out in concurrency-limited groups so we don't overwhelm the API
+    const BATCH = 20;
     for (let i = 0; i < toInsert.length; i += BATCH) {
       const batch = toInsert.slice(i, i + BATCH);
-      const { error } = await supabase.from("leads").insert(batch);
-      if (error) {
-        errors += batch.length;
-        console.error("Import batch error:", error);
+      const results = await Promise.allSettled(
+        batch.map((l) => Leads.create(l as LeadWritePayload)),
+      );
+      for (const r of results) {
+        if (r.status === "rejected") {
+          errors++;
+          console.error("Import row error:", r.reason);
+        }
       }
       done += batch.length;
       setProgress({ done, total, errors });
@@ -603,22 +602,21 @@ export function ImportLeadsDialog({
     for (const m of toMerge) {
       const patch = buildMergePatch(m.lead, m.existing);
       if (Object.keys(patch).length > 0) {
-        const { error } = await supabase
-          .from("leads")
-          .update(patch)
-          .eq("id", m.existing.id);
-        if (error) {
-          errors++;
-          console.error("Merge error:", error);
-        } else {
+        try {
+          await Leads.update(m.existing.id, patch as LeadWritePayload);
           // Audit activity
-          await supabase.from("lead_activities").insert({
-            lead_id: m.existing.id,
-            type: "note_added",
-            title: "Lead merged (CSV import)",
-            description: `Duplicate row for "${m.lead.full_name || "(no name)"}" merged in (matched on ${m.matched_on.join(", ")}).`,
-            created_by: salesUser?.id ?? null,
-          });
+          try {
+            await Activities.create(m.existing.id, {
+              type: "note_added",
+              title: "Lead merged (CSV import)",
+              description: `Duplicate row for "${m.lead.full_name || "(no name)"}" merged in (matched on ${m.matched_on.join(", ")}).`,
+            });
+          } catch {
+            /* swallow */
+          }
+        } catch (e) {
+          errors++;
+          console.error("Merge error:", e);
         }
       }
       done++;

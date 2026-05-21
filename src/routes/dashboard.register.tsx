@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { publicRegister } from "@/server/register";
+import { publicRegister } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

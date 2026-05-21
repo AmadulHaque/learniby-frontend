@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Wallet, Trophy, TrendingUp, Download, Search, ArrowUpRight, Target as TargetIcon, Plus } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { formatMoney, monthLabel } from "@/lib/leads";
 import { AddExpenseModal } from "@/components/sales/expenses/AddExpenseModal";
 import { toast } from "sonner";
+import { SalesUsers, Leads, Targets, Payments } from "@/lib/sales-api";
 
 export const Route = createFileRoute("/sales/accounting")({
   component: AccountingPage,
@@ -55,31 +55,40 @@ function AccountingPage() {
     (async () => {
       setLoading(true);
       const monthDate = `${month}-01`;
-      const [r, l, t] = await Promise.all([
-        isAdmin
-          ? supabase.from("sales_users").select("id,full_name,role").order("full_name")
-          : Promise.resolve({ data: [{ id: salesUser.id, full_name: salesUser.full_name, role: salesUser.role }] }),
-        supabase.from("leads")
-          .select("id,full_name,phone,courses,status,deal_value,won_at,assigned_to,created_at")
-          .gte("won_at", monthStart.toISOString())
-          .lt("won_at", monthEnd.toISOString())
-          .order("won_at", { ascending: false }),
-        supabase.from("sales_targets").select("sales_user_id,target_amount").eq("month", monthDate),
-      ]);
-      const won = (l.data ?? []) as WonLead[];
-      const ids = won.map((w) => w.id);
-      let pays: Payment[] = [];
-      if (ids.length) {
-        const { data: pd } = await supabase.from("sales_payments").select("id,lead_id,amount,paid_at,method").in("lead_id", ids);
-        pays = (pd ?? []) as Payment[];
+      try {
+        const [r, l, t] = await Promise.all([
+          isAdmin
+            ? SalesUsers.list().then((res) => res.data ?? [])
+            : Promise.resolve([{ id: salesUser.id, full_name: salesUser.full_name, role: salesUser.role }]),
+          Leads.list({
+            won_from: monthStart.toISOString(),
+            won_to: monthEnd.toISOString(),
+            per_page: 5000,
+            sort: "updated_at",
+            direction: "desc",
+          }),
+          Targets.list({ month: monthDate }),
+        ]);
+        const won = (l.data ?? []) as unknown as WonLead[];
+        const ids = won.map((w) => w.id);
+        let pays: Payment[] = [];
+        if (ids.length) {
+          const pd = await Payments.list({ lead_ids: ids, per_page: 5000 });
+          pays = (pd.data ?? []) as unknown as Payment[];
+        }
+        setReps((r as unknown) as Rep[]);
+        setWonLeads(won);
+        setPayments(pays);
+        const tmap: Record<string, number> = {};
+        for (const row of ((t.data ?? []) as unknown as { sales_user_id: string; target_amount: number }[])) {
+          tmap[row.sales_user_id] = Number(row.target_amount);
+        }
+        setTargets(tmap);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to load accounting data");
+      } finally {
+        setLoading(false);
       }
-      setReps((r.data ?? []) as Rep[]);
-      setWonLeads(won);
-      setPayments(pays);
-      const tmap: Record<string, number> = {};
-      for (const row of (t.data ?? []) as { sales_user_id: string; target_amount: number }[]) tmap[row.sales_user_id] = Number(row.target_amount);
-      setTargets(tmap);
-      setLoading(false);
     })();
   }, [salesUser, isAdmin, month, monthStart, monthEnd]);
 

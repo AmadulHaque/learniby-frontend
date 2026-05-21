@@ -12,7 +12,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Notifications } from "@/lib/sales-api";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 
 type Kind = "follow_up_reminder" | "lead_assigned" | "overdue_follow_up" | "leads_imported" | "status_changed" | "system";
@@ -47,6 +47,8 @@ function relTime(iso: string) {
   return `${d}d ago`;
 }
 
+const POLL_INTERVAL_MS = 30_000;
+
 export function NotificationBell() {
   const { authUser } = useSalesAuth();
   const [items, setItems] = useState<Notif[]>([]);
@@ -59,40 +61,31 @@ export function NotificationBell() {
   useEffect(() => {
     if (!authUser) return;
     let cancelled = false;
+    let prevTopId: string | null = null;
+
     const load = async () => {
-      const { data } = await supabase
-        .from("notifications")
-        .select("id, kind, title, body, action_url, is_read, created_at")
-        .eq("user_id", authUser.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (!cancelled) setItems((data ?? []) as Notif[]);
-    };
-    load();
-    const ch = supabase
-      .channel("notif_rt")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${authUser.id}` },
-        (payload) => {
-          setItems((cur) => [payload.new as Notif, ...cur].slice(0, 50));
+      try {
+        const res = await Notifications.list({ per_page: 50 });
+        if (cancelled) return;
+        const fresh = (res.data ?? []) as unknown as Notif[];
+        if (prevTopId && fresh.length && fresh[0].id !== prevTopId && !fresh[0].is_read) {
           setShake(true);
           setPulse(true);
           setTimeout(() => setShake(false), 600);
           setTimeout(() => setPulse(false), 1200);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${authUser.id}` },
-        (payload) => {
-          setItems((cur) => cur.map((n) => (n.id === (payload.new as Notif).id ? (payload.new as Notif) : n)));
-        },
-      )
-      .subscribe();
+        }
+        prevTopId = fresh[0]?.id ?? null;
+        setItems(fresh);
+      } catch {
+        // swallow — bell stays empty
+      }
+    };
+
+    void load();
+    const id = window.setInterval(load, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      supabase.removeChannel(ch);
+      window.clearInterval(id);
     };
   }, [authUser]);
 
@@ -106,15 +99,22 @@ export function NotificationBell() {
 
   const markAllRead = async () => {
     if (!authUser) return;
-    const ids = items.filter((n) => !n.is_read).map((n) => n.id);
-    if (ids.length === 0) return;
+    if (unread === 0) return;
     setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
-    await supabase.from("notifications").update({ is_read: true }).in("id", ids);
+    try {
+      await Notifications.markAllRead();
+    } catch {
+      /* ignore */
+    }
   };
 
   const markRead = async (id: string) => {
     setItems((cur) => cur.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    try {
+      await Notifications.markRead(id);
+    } catch {
+      /* ignore */
+    }
   };
 
   return (
@@ -171,7 +171,7 @@ export function NotificationBell() {
                 <ul>
                   <AnimatePresence initial={false}>
                     {items.map((n) => {
-                      const M = META[n.kind];
+                      const M = META[n.kind] ?? META.system;
                       const Icon = M.icon;
                       const inner = (
                         <div className="flex gap-3">
@@ -202,7 +202,7 @@ export function NotificationBell() {
                             <Link
                               to={n.action_url}
                               onClick={() => {
-                                markRead(n.id);
+                                void markRead(n.id);
                                 setOpen(false);
                               }}
                               className="block px-4 py-3 hover:bg-muted/60"
@@ -211,7 +211,7 @@ export function NotificationBell() {
                             </Link>
                           ) : (
                             <button
-                              onClick={() => markRead(n.id)}
+                              onClick={() => void markRead(n.id)}
                               className="block w-full px-4 py-3 text-left hover:bg-muted/60"
                             >
                               {inner}
@@ -227,7 +227,7 @@ export function NotificationBell() {
             {items.length > 0 && (
               <div className="border-t border-border px-4 py-2 text-center">
                 <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <CheckCheck className="h-3 w-3" /> Real-time updates active
+                  <CheckCheck className="h-3 w-3" /> Auto-refreshes every 30s
                 </span>
               </div>
             )}

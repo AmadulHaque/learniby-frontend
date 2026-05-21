@@ -73,6 +73,7 @@ export interface NoteAttachment {
   lead_id: string;
   file_name: string;
   file_path: string;
+  url: string | null;
   mime_type: string | null;
   size_bytes: number | null;
   uploaded_by: string | null;
