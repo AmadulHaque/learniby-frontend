@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
+import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { useSalesStatuses } from "@/contexts/SalesStatusesContext";
 import type { LeadPriority } from "@/lib/leads";
 
@@ -45,6 +46,7 @@ export function BulkActionsDialog({
   reps: { id: string; full_name: string }[];
   onApplied: (patch: Partial<{ assigned_to: string | null; status: string; priority: LeadPriority }>) => void;
 }) {
+  const { salesUser } = useSalesAuth();
   const { statuses } = useSalesStatuses();
   const [value, setValue] = useState<string>("");
   const [reason, setReason] = useState("");
@@ -77,7 +79,6 @@ export function BulkActionsDialog({
     try {
       let patch: Record<string, unknown> = {};
       let activityType = "";
-      let activityTitle = "";
       let activityDetails: Record<string, unknown> = {};
 
       if (mode === "reassign") {
@@ -85,7 +86,6 @@ export function BulkActionsDialog({
         patch = { assigned_to: newAssignee };
         activityType = "reassigned";
         const repName = reps.find((r) => r.id === newAssignee)?.full_name ?? "Unassigned (back to pool)";
-        activityTitle = `Reassigned to ${repName}`;
         activityDetails = { to: newAssignee, to_name: repName, reason: reason || null, bulk: true };
       } else if (mode === "status") {
         if (value === "follow_up") {
@@ -105,33 +105,31 @@ export function BulkActionsDialog({
           patch = { status: value };
         }
         activityType = "status_changed";
-        activityTitle = `Status changed to ${value}`;
         activityDetails = { to: value, reason: reason || null, bulk: true };
       } else if (mode === "priority") {
         patch = { priority: value };
         activityType = "priority_changed";
-        activityTitle = `Priority changed to ${value}`;
         activityDetails = { to: value, reason: reason || null, bulk: true };
       }
 
-      await Promise.all(
-        selectedIds.map((id) =>
-          mode === "reassign"
-            ? sales.leads.assign(id, (patch as { assigned_to: string | null }).assigned_to)
-            : sales.leads.update(id, patch),
-        ),
-      );
+      const { error } = await supabase
+        .from("leads")
+        .update(patch)
+        .in("id", selectedIds);
+      if (error) throw error;
 
       // Best-effort activity log (ignore errors so UX isn't blocked)
-      await Promise.allSettled(
-        selectedIds.map((leadId) =>
-          sales.leadActivities.create(leadId, {
-            type: activityType,
-            title: activityTitle,
-            meta: activityDetails,
-          }),
-        ),
-      );
+      try {
+        const rows = selectedIds.map((lead_id) => ({
+          lead_id,
+          actor_id: salesUser?.id ?? null,
+          activity_type: activityType,
+          details: activityDetails,
+        }));
+        await supabase.from("lead_activities").insert(rows);
+      } catch {
+        /* noop */
+      }
 
       toast.success(`${count} lead${count > 1 ? "s" : ""} updated`);
       onApplied(patch as never);

@@ -12,8 +12,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
 } from "lucide-react";
-import { sales } from "@/lib/api";
-import { unwrapList, type SalesNotificationRow } from "@/lib/api/sales";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 
 type Kind = "follow_up_reminder" | "lead_assigned" | "overdue_follow_up" | "leads_imported" | "status_changed" | "system";
@@ -60,41 +59,40 @@ export function NotificationBell() {
   useEffect(() => {
     if (!authUser) return;
     let cancelled = false;
-    const toNotif = (r: SalesNotificationRow): Notif => ({
-      id: String(r.id),
-      kind: (r.kind as Kind) ?? "system",
-      title: r.title,
-      body: r.body,
-      action_url: r.action_url,
-      is_read: r.is_read,
-      created_at: r.created_at ?? new Date().toISOString(),
-    });
     const load = async () => {
-      try {
-        const res = await sales.notifications.list({ per_page: 50 });
-        const rows = unwrapList<SalesNotificationRow>(res);
-        if (cancelled) return;
-        const next = rows.map(toNotif);
-        setItems((cur) => {
-          const prevUnread = cur.filter((n) => !n.is_read).length;
-          const newUnread = next.filter((n) => !n.is_read).length;
-          if (newUnread > prevUnread) {
-            setShake(true);
-            setPulse(true);
-            setTimeout(() => setShake(false), 600);
-            setTimeout(() => setPulse(false), 1200);
-          }
-          return next;
-        });
-      } catch {
-        // Soft-fail: leave existing list intact.
-      }
+      const { data } = await supabase
+        .from("notifications")
+        .select("id, kind, title, body, action_url, is_read, created_at")
+        .eq("user_id", authUser.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (!cancelled) setItems((data ?? []) as Notif[]);
     };
     load();
-    const t = window.setInterval(load, 30000);
+    const ch = supabase
+      .channel("notif_rt")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${authUser.id}` },
+        (payload) => {
+          setItems((cur) => [payload.new as Notif, ...cur].slice(0, 50));
+          setShake(true);
+          setPulse(true);
+          setTimeout(() => setShake(false), 600);
+          setTimeout(() => setPulse(false), 1200);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${authUser.id}` },
+        (payload) => {
+          setItems((cur) => cur.map((n) => (n.id === (payload.new as Notif).id ? (payload.new as Notif) : n)));
+        },
+      )
+      .subscribe();
     return () => {
       cancelled = true;
-      window.clearInterval(t);
+      supabase.removeChannel(ch);
     };
   }, [authUser]);
 
@@ -108,22 +106,15 @@ export function NotificationBell() {
 
   const markAllRead = async () => {
     if (!authUser) return;
-    if (items.filter((n) => !n.is_read).length === 0) return;
+    const ids = items.filter((n) => !n.is_read).map((n) => n.id);
+    if (ids.length === 0) return;
     setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
-    try {
-      await sales.notifications.markAllRead();
-    } catch {
-      // Optimistic update; reload will reconcile.
-    }
+    await supabase.from("notifications").update({ is_read: true }).in("id", ids);
   };
 
   const markRead = async (id: string) => {
     setItems((cur) => cur.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-    try {
-      await sales.notifications.markRead(id);
-    } catch {
-      // Optimistic update; reload will reconcile.
-    }
+    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
   };
 
   return (

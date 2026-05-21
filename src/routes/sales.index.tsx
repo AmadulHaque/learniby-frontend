@@ -6,8 +6,7 @@ import {
   Trophy, Clock, AlertTriangle, Activity, BookOpen, ArrowUpRight,
   CalendarCheck, Flame, PlusCircle, Loader2, Calendar as CalendarIcon,
 } from "lucide-react";
-import { sales } from "@/lib/api";
-import { unwrapList } from "@/lib/api/sales";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { useSalesStatuses } from "@/contexts/SalesStatusesContext";
 import { formatMoney, avatarFor, relativeTime, STATUS_META, type LeadStatus } from "@/lib/leads";
@@ -101,42 +100,41 @@ function SalesDashboard() {
     let cancel = false;
     (async () => {
       setLoading(true);
-      try {
-        const now = new Date();
-        const monthStartIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-        const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-        const quarterStartIso = `${qStart.getFullYear()}-${String(qStart.getMonth() + 1).padStart(2, "0")}-01`;
+      const leadsQuery = supabase
+        .from("leads")
+        .select("id, full_name, phone, status, assigned_to, created_at, deal_value, won_at, follow_up_date, courses, last_activity_at")
+        .order("created_at", { ascending: false });
 
-        const [l, u, a, e, tgMonth, tgQuarter] = await Promise.all([
-          sales.leads.listAll({ sort: "created_at", direction: "desc" }),
-          sales.salesUsers.list(),
-          sales.leadActivities.listAll({ per_page: 8 }),
-          isAdmin
-            ? sales.expenses.list({
-                from: rangeStart.toISOString().slice(0, 10),
-                to: rangeEnd.toISOString().slice(0, 10),
-                per_page: 1000,
-              })
-            : Promise.resolve([] as { amount: number }[]),
-          sales.targets.list({ month: monthStartIso, period_type: "month" }),
-          sales.targets.list({ month: quarterStartIso, period_type: "quarter" }),
-        ]);
-        if (cancel) return;
-        setLeads(l as unknown as LeadLite[]);
-        setUsers(u as unknown as UserLite[]);
-        setActivities(a as unknown as ActivityLite[]);
-        const exList = unwrapList(e as unknown as { data: { amount: number }[] } | { amount: number }[]) as { amount: number }[];
-        const exTot = exList.reduce((s, x) => s + Number(x.amount ?? 0), 0);
-        setExpensesMonth(exTot);
-        setTargets([
-          ...(tgMonth as unknown as { sales_user_id: string; target_amount: number; period_type: "month" | "quarter" }[]),
-          ...(tgQuarter as unknown as { sales_user_id: string; target_amount: number; period_type: "month" | "quarter" }[]),
-        ]);
-      } catch {
-        // swallow — UI shows empty/loading state
-      } finally {
-        if (!cancel) setLoading(false);
-      }
+      const now = new Date();
+      const monthStartIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const quarterStartIso = `${qStart.getFullYear()}-${String(qStart.getMonth() + 1).padStart(2, "0")}-01`;
+
+      const [l, u, a, e, tg] = await Promise.all([
+        leadsQuery,
+        supabase.from("sales_users").select("id, full_name, role, avatar_url"),
+        supabase.from("lead_activities")
+          .select("id, type, title, created_at, lead_id, lead:leads(full_name)")
+          .order("created_at", { ascending: false })
+          .limit(8),
+        isAdmin
+          ? supabase.from("expenses").select("amount")
+              .gte("expense_date", rangeStart.toISOString().slice(0, 10))
+              .lt("expense_date", rangeEnd.toISOString().slice(0, 10))
+          : Promise.resolve({ data: [] as { amount: number }[] }),
+        supabase.from("sales_targets")
+          .select("sales_user_id, target_amount, period_type, month")
+          .in("month", [monthStartIso, quarterStartIso]),
+      ]);
+      if (cancel) return;
+      setLeads((l.data ?? []) as LeadLite[]);
+      setUsers((u.data ?? []) as UserLite[]);
+      setActivities((a.data ?? []) as unknown as ActivityLite[]);
+      const exTot = ((e.data ?? []) as { amount: number }[]).reduce((s, x) => s + Number(x.amount ?? 0), 0);
+      setExpensesMonth(exTot);
+      setTargets(((tg.data ?? []) as { sales_user_id: string; target_amount: number; period_type: "month" | "quarter"; month: string }[])
+        .filter((r) => (r.period_type === "month" && r.month === monthStartIso) || (r.period_type === "quarter" && r.month === quarterStartIso)));
+      setLoading(false);
     })();
     return () => { cancel = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

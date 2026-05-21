@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface SalesPaymentMethod {
   id: string;
@@ -24,14 +24,9 @@ export function SalesPaymentMethodsProvider({ children }: { children: ReactNode 
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    try {
-      const rows = await sales.taxonomy.paymentMethods.list();
-      setMethods(rows as SalesPaymentMethod[]);
-    } catch {
-      setMethods([]);
-    } finally {
-      setLoading(false);
-    }
+    const { data } = await supabase.from("sales_payment_methods").select("*").order("sort_order");
+    setMethods((data ?? []) as SalesPaymentMethod[]);
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);

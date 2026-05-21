@@ -17,14 +17,16 @@ async function getUserId(accessToken: string): Promise<string> {
   return user.id;
 }
 
-// Admin OR teacher — both can manage content/students
+// Admin / manager / teacher — all can manage content/students
 async function assertAdmin(accessToken: string): Promise<string> {
   const uid = await getUserId(accessToken);
   const { data: roles } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("user_id", uid);
-  const has = (roles ?? []).some((r) => r.role === "admin" || r.role === "teacher");
+  const has = (roles ?? []).some(
+    (r) => r.role === "admin" || r.role === "manager" || r.role === "teacher"
+  );
   if (!has) throw new Error("Admin access required");
   return uid;
 }

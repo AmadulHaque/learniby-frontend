@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Wallet, Plus, Trash2, Check, X, Calculator, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesCourses } from "@/contexts/SalesCoursesContext";
 import { useSalesPaymentMethods } from "@/contexts/SalesPaymentMethodsContext";
 import { Button } from "@/components/ui/button";
@@ -46,19 +46,13 @@ export function DealAndPayments({
 
   const load = async () => {
     setLoading(true);
-    try {
-      const rows = await sales.payments.listForLead(lead.id);
-      const sorted = [...rows].sort((a, b) => {
-        const ta = a.paid_at ? new Date(a.paid_at).getTime() : 0;
-        const tb = b.paid_at ? new Date(b.paid_at).getTime() : 0;
-        return tb - ta;
-      });
-      setPayments(sorted as unknown as Payment[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load payments");
-    } finally {
-      setLoading(false);
-    }
+    const { data } = await supabase
+      .from("sales_payments")
+      .select("*")
+      .eq("lead_id", lead.id)
+      .order("paid_at", { ascending: false });
+    setPayments((data ?? []) as Payment[]);
+    setLoading(false);
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lead.id]);
 
@@ -89,16 +83,12 @@ export function DealAndPayments({
     if (isNaN(v) || v < 0) { toast.error("Invalid monthly fee"); return; }
     setSavingMonthly(true);
     const next = { ...monthlyFees, [k]: v };
-    try {
-      await sales.leads.update(lead.id, { monthly_fees: next as unknown as number });
-      onLeadUpdate({ monthly_fees: next });
-      setMonthlyDraft((p) => { const n = { ...p }; delete n[k]; return n; });
-      toast.success("Monthly fee updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
-    } finally {
-      setSavingMonthly(false);
-    }
+    const { error } = await supabase.from("leads").update({ monthly_fees: next }).eq("id", lead.id);
+    setSavingMonthly(false);
+    if (error) { toast.error(error.message); return; }
+    onLeadUpdate({ monthly_fees: next });
+    setMonthlyDraft((p) => { const n = { ...p }; delete n[k]; return n; });
+    toast.success("Monthly fee updated");
   };
 
   const startEditValue = () => {
@@ -121,32 +111,26 @@ export function DealAndPayments({
     const v = Number(amount);
     if (!v || v <= 0) { toast.error("Enter a valid amount"); return; }
     setSaving(true);
-    try {
-      await sales.payments.create(lead.id, {
-        amount: v,
-        method,
-        paid_at: new Date(paidAt + "T00:00:00").toISOString(),
-        note: note || null,
-      });
-      toast.success("Payment recorded");
-      setAmount(""); setNote(""); setMethod("cash"); setAdding(false);
-      void load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to record payment");
-    } finally {
-      setSaving(false);
-    }
+    const { error } = await supabase.from("sales_payments").insert({
+      lead_id: lead.id,
+      amount: v,
+      method,
+      paid_at: new Date(paidAt + "T00:00:00").toISOString(),
+      note: note || null,
+    });
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Payment recorded");
+    setAmount(""); setNote(""); setMethod("cash"); setAdding(false);
+    void load();
   };
 
   const remove = async (p: Payment) => {
     if (!confirm("Delete this payment?")) return;
-    try {
-      await sales.payments.remove(p.id);
-      toast.success("Payment removed");
-      void load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to remove payment");
-    }
+    const { error } = await supabase.from("sales_payments").delete().eq("id", p.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Payment removed");
+    void load();
   };
 
   return (

@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import type { Lead, LeadActivity } from "@/lib/leads";
 import { cn } from "@/lib/utils";
@@ -76,27 +76,19 @@ export function WhatsAppDialog({ open, onOpenChange, lead, onSent }: Props) {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    sales.taxonomy.messageTemplates
-      .list()
-      .then((rows) => {
-        const active = rows
-          .filter((r) => r.is_active)
-          .sort((a, b) => a.sort_order - b.sort_order);
-        setTemplates(
-          active.map((r) => ({
-            id: r.id,
-            name: r.name,
-            category: r.category,
-            body: r.body,
-            is_active: r.is_active,
-            sort_order: r.sort_order,
-          })),
-        );
-      })
-      .catch((e: unknown) => {
-        toast.error(e instanceof Error ? e.message : "Failed to load templates");
-      })
-      .finally(() => setLoading(false));
+    supabase
+      .from("sales_message_templates")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data, error }) => {
+        setLoading(false);
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+        setTemplates((data ?? []) as MessageTemplate[]);
+      });
   }, [open]);
 
   // reset on close
@@ -119,25 +111,37 @@ export function WhatsAppDialog({ open, onOpenChange, lead, onSent }: Props) {
     const tpl = templates.find((t) => t.id === selectedId);
     const title = tpl ? `WhatsApp: ${tpl.name}` : "WhatsApp Sent";
 
-    try {
-      const act = await sales.leadActivities.create(lead.id, {
+    // Log activity first
+    const { data: act, error } = await supabase
+      .from("lead_activities")
+      .insert({
+        lead_id: lead.id,
         type: "whatsapp_sent",
         title,
         description: preview,
+        created_by: salesUser?.id ?? null,
         meta: { template_id: tpl?.id ?? null, channel: "wa.me" },
-      });
+      })
+      .select()
+      .single();
 
-      // Open WhatsApp
-      const url = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(preview)}`;
-      window.open(url, "_blank", "noopener,noreferrer");
-      onSent?.(act as unknown as LeadActivity);
-      toast.success("WhatsApp opened — message logged");
-      onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to log activity");
-    } finally {
+    if (error) {
       setSending(false);
+      toast.error(error.message);
+      return;
     }
+    await supabase
+      .from("leads")
+      .update({ last_activity_at: new Date().toISOString() })
+      .eq("id", lead.id);
+
+    // Open WhatsApp
+    const url = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(preview)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    onSent?.(act as LeadActivity);
+    setSending(false);
+    toast.success("WhatsApp opened — message logged");
+    onOpenChange(false);
   };
 
   const insertVar = (k: string) => {

@@ -11,8 +11,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
-import { sales } from "@/lib/api";
-import { unwrapList } from "@/lib/api/sales";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { formatMoney, monthLabel } from "@/lib/leads";
 import { Settings2 } from "lucide-react";
@@ -54,19 +53,15 @@ export function ExpensesPage() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const res = await sales.expenses.list({
-        from: monthStart.toISOString().slice(0, 10),
-        to: monthEnd.toISOString().slice(0, 10),
-        per_page: 500,
-      });
-      const list = unwrapList(res);
-      setRows(list as unknown as ExpenseRow[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load expenses");
-    } finally {
-      setLoading(false);
-    }
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("*")
+      .gte("expense_date", monthStart.toISOString().slice(0, 10))
+      .lt("expense_date", monthEnd.toISOString().slice(0, 10))
+      .order("expense_date", { ascending: false });
+    if (error) toast.error(error.message);
+    setRows((data ?? []) as ExpenseRow[]);
+    setLoading(false);
   };
 
   const filtered = useMemo(
@@ -96,13 +91,13 @@ export function ExpensesPage() {
 
   const onDelete = async (row: ExpenseRow) => {
     if (!confirm(`Delete this ${getMeta(row.category).label} expense of ${formatMoney(row.amount)}?`)) return;
-    try {
-      await sales.expenses.remove(row.id);
-      setRows((all) => all.filter((x) => x.id !== row.id));
-      toast.success("Expense deleted");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed");
+    const { error } = await supabase.from("expenses").delete().eq("id", row.id);
+    if (error) {
+      toast.error(error.message);
+      return;
     }
+    setRows((all) => all.filter((x) => x.id !== row.id));
+    toast.success("Expense deleted");
   };
 
   const exportCsv = () => {

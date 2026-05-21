@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface SalesCourse {
   id: string;
@@ -43,25 +43,16 @@ export function SalesCoursesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    try {
-      const courseRows = await sales.taxonomy.courses.list();
-      setCourses(courseRows as SalesCourse[]);
-
-      // Backend exposes fields per course; fetch all in parallel.
-      const fieldLists = await Promise.all(
-        courseRows.map((c) => sales.taxonomy.courseFields.list(c.id).catch(() => [])),
-      );
-      const allFields = fieldLists.flat().map((x) => ({
-        ...x,
-        options: Array.isArray(x.options) ? x.options : [],
-      })) as SalesCourseField[];
-      setFields(allFields);
-    } catch {
-      setCourses([]);
-      setFields([]);
-    } finally {
-      setLoading(false);
-    }
+    const [c, f] = await Promise.all([
+      supabase.from("sales_courses").select("*").order("sort_order"),
+      supabase.from("sales_course_fields").select("*").order("sort_order"),
+    ]);
+    setCourses((c.data ?? []) as SalesCourse[]);
+    setFields(((f.data ?? []) as SalesCourseField[]).map((x) => ({
+      ...x,
+      options: Array.isArray(x.options) ? x.options : [],
+    })));
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);

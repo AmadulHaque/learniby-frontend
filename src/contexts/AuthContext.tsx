@@ -1,18 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { ApiError, getToken, userLogin, userLogout, userMe, type ApiUser } from "@/lib/api";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import type { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
 
-export type Role = "admin" | "teacher" | "student" | null;
-
-// Lightweight session shape — exposes only what the rest of the app reads.
-// Kept as a stable surface so existing consumers that destructure
-// `session.access_token` continue to type-check during the migration.
-export interface ApiSession {
-  access_token: string;
-}
+type Role = "admin" | "manager" | "teacher" | "student" | null;
 
 interface AuthCtx {
-  user: ApiUser | null;
-  session: ApiSession | null;
+  user: User | null;
+  session: Session | null;
   role: Role;
   isMaster: boolean;
   isAdminLike: boolean;
@@ -24,89 +18,92 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | undefined>(undefined);
 
-function deriveRole(roles: string[]): Role {
-  if (roles.includes("admin")) return "admin";
-  if (roles.includes("teacher")) return "teacher";
-  if (roles.includes("student")) return "student";
-  return null;
-}
-
-function sessionFromToken(token: string | null): ApiSession | null {
-  return token ? { access_token: token } : null;
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<ApiUser | null>(null);
-  const [session, setSession] = useState<ApiSession | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [role, setRole] = useState<Role>(null);
+  const [isMaster, setIsMaster] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const applyUser = useCallback((u: ApiUser | null) => {
-    setUser(u);
-    setSession(sessionFromToken(getToken("user")));
-  }, []);
-
-  const bootstrap = useCallback(async () => {
-    if (!getToken("user")) {
-      applyUser(null);
-      setLoading(false);
+  const loadRole = async (uid: string) => {
+    const [{ data: roleRows }, { data: profile }] = await Promise.all([
+      supabase.from("user_roles").select("role").eq("user_id", uid),
+      supabase.from("profiles").select("is_master").eq("id", uid).maybeSingle(),
+    ]);
+    setIsMaster(!!(profile as any)?.is_master);
+    if (!roleRows || roleRows.length === 0) {
+      setRole(null);
       return;
     }
-    try {
-      const me = await userMe();
-      applyUser(me);
-    } catch {
-      // Token invalid / expired beyond refresh — client already cleared it.
-      applyUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [applyUser]);
+    const roles = roleRows.map((r) => r.role);
+    if (roles.includes("admin")) setRole("admin");
+    else if (roles.includes("manager")) setRole("manager");
+    else if (roles.includes("teacher")) setRole("teacher");
+    else setRole("student");
+  };
 
   useEffect(() => {
-    void bootstrap();
-  }, [bootstrap]);
+    // Listener FIRST
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.user) {
+        // defer DB call to avoid deadlock
+        setTimeout(() => loadRole(s.user.id), 0);
+      } else {
+        setRole(null);
+        setIsMaster(false);
+      }
+    });
 
-  const signIn: AuthCtx["signIn"] = async (email, password) => {
+    // Then existing session
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setUser(s?.user ?? null);
+      if (s?.user) loadRole(s.user.id).finally(() => setLoading(false));
+      else setLoading(false);
+    });
+
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+
+    // IP lock check — ভিন্ন IP হলে account lock + signOut
     try {
-      const res = await userLogin(email, password);
-      applyUser(res.user);
-      return {};
-    } catch (e) {
-      if (e instanceof ApiError) {
-        const fieldErr = e.firstFieldError();
-        if (e.status === 423) {
+      const token = data.session?.access_token;
+      if (token) {
+        const { verifyLoginIp } = await import("@/server/ipLock");
+        const res = await verifyLoginIp({ data: { accessToken: token } });
+        if (!res.ok && res.status === "ip_locked") {
+          await supabase.auth.signOut();
+          setRole(null);
           return {
             error:
               "নিরাপত্তার জন্য আপনার একাউন্ট নতুন IP থেকে লগইনের কারণে লক করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।",
           };
         }
-        return { error: fieldErr ?? e.message };
       }
-      return { error: "লগইন ব্যর্থ হয়েছে। আবার চেষ্টা করুন।" };
+    } catch (e: any) {
+      console.error("IP verify failed", e);
     }
+
+    return {};
   };
 
   const signOut = async () => {
-    try {
-      await userLogout();
-    } finally {
-      applyUser(null);
-    }
+    await supabase.auth.signOut();
+    setRole(null);
+    setIsMaster(false);
   };
 
   const refreshRole = async () => {
-    if (!getToken("user")) return;
-    try {
-      const me = await userMe();
-      applyUser(me);
-    } catch {
-      applyUser(null);
-    }
+    if (user) await loadRole(user.id);
   };
 
-  const role = deriveRole(user?.roles ?? []);
-  const isMaster = !!user?.profile?.is_master;
-  const isAdminLike = role === "admin" || role === "teacher";
+  const isAdminLike = role === "admin" || role === "manager" || role === "teacher";
 
   return (
     <Ctx.Provider value={{ user, session, role, isMaster, isAdminLike, loading, signIn, signOut, refreshRole }}>

@@ -43,7 +43,7 @@ export function SalesSidebar({
   onOpenProfile,
 }: {
   collapsed: boolean;
-  role?: "admin" | "manager" | "executive";
+  role?: "admin" | "executive";
   user?: { name: string; email: string; avatar_url?: string | null; designation?: string | null };
   onLogout?: () => void;
   onOpenProfile?: () => void;

@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { useSalesSources } from "@/contexts/SalesSourcesContext";
 import { cn } from "@/lib/utils";
@@ -431,13 +431,22 @@ export function ImportLeadsDialog({
         }
         return;
       }
-      // Fetch existing leads — the backend caps `per_page` and paginates internally.
+      // Fetch existing leads (paged) — pull only the columns we need for matching + merge
+      const cols =
+        "id, full_name, phone, secondary_phone, whatsapp, email, status, courses, course_data, city, state, campaign_name, child_age, district, student_class, batch_preference, budget_range, priority, additional_fields";
       const all: DupExisting[] = [];
-      try {
-        const rows = await sales.leads.listAll();
-        all.push(...(rows as unknown as DupExisting[]));
-      } catch {
-        /* network/permission error — treat as no duplicates so we can still import */
+      const PAGE = 1000;
+      let from = 0;
+      // Cap at 20k existing leads to stay safe; org sizes beyond this are rare here
+      while (from < 20000) {
+        const { data, error } = await supabase
+          .from("leads")
+          .select(cols)
+          .range(from, from + PAGE - 1);
+        if (error || !data || data.length === 0) break;
+        all.push(...(data as unknown as DupExisting[]));
+        if (data.length < PAGE) break;
+        from += PAGE;
       }
       if (cancelled) return;
 
@@ -578,14 +587,13 @@ export function ImportLeadsDialog({
     const total = toInsert.length + toMerge.length + skipped;
 
     // 1) Insert new
-    const BATCH = 10;
+    const BATCH = 100;
     for (let i = 0; i < toInsert.length; i += BATCH) {
       const batch = toInsert.slice(i, i + BATCH);
-      const results = await Promise.allSettled(batch.map((row) => sales.leads.create(row)));
-      const failed = results.filter((r) => r.status === "rejected").length;
-      if (failed > 0) {
-        errors += failed;
-        console.error("Import batch error: %d rejected of %d", failed, batch.length);
+      const { error } = await supabase.from("leads").insert(batch);
+      if (error) {
+        errors += batch.length;
+        console.error("Import batch error:", error);
       }
       done += batch.length;
       setProgress({ done, total, errors });
@@ -595,16 +603,22 @@ export function ImportLeadsDialog({
     for (const m of toMerge) {
       const patch = buildMergePatch(m.lead, m.existing);
       if (Object.keys(patch).length > 0) {
-        try {
-          await sales.leads.update(m.existing.id, patch);
-          await sales.leadActivities.create(m.existing.id, {
+        const { error } = await supabase
+          .from("leads")
+          .update(patch)
+          .eq("id", m.existing.id);
+        if (error) {
+          errors++;
+          console.error("Merge error:", error);
+        } else {
+          // Audit activity
+          await supabase.from("lead_activities").insert({
+            lead_id: m.existing.id,
             type: "note_added",
             title: "Lead merged (CSV import)",
             description: `Duplicate row for "${m.lead.full_name || "(no name)"}" merged in (matched on ${m.matched_on.join(", ")}).`,
+            created_by: salesUser?.id ?? null,
           });
-        } catch (err) {
-          errors++;
-          console.error("Merge error:", err);
         }
       }
       done++;

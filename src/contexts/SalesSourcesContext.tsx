@@ -3,7 +3,7 @@ import {
   Facebook, Instagram, Globe, MessageCircle, Users, Search, Sparkles,
   Mail, Phone, Youtube, Linkedin, Twitter, type LucideIcon,
 } from "lucide-react";
-import { sales } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface SalesSource {
   id: string;
@@ -23,7 +23,7 @@ export const SOURCE_ICON_MAP: Record<string, LucideIcon> = {
 export interface SourceMeta {
   label: string;
   icon: LucideIcon;
-  color: string;
+  color: string; // tailwind class e.g. "text-blue-600"
   hex: string;
 }
 
@@ -59,14 +59,9 @@ export function SalesSourcesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    try {
-      const rows = await sales.taxonomy.leadSources.list();
-      setSources(rows as SalesSource[]);
-    } catch {
-      setSources([]);
-    } finally {
-      setLoading(false);
-    }
+    const { data } = await supabase.from("sales_lead_sources").select("*").order("sort_order");
+    setSources((data ?? []) as SalesSource[]);
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);

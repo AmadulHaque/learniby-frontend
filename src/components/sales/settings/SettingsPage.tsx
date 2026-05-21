@@ -26,10 +26,10 @@ import {
 } from "lucide-react";
 import { STATUS_COLORS, type SalesStatus } from "@/lib/leads";
 import { useSalesStatuses } from "@/contexts/SalesStatusesContext";
-import { sales } from "@/lib/api";
-import { unwrapList, type SalesCourseRow, type SalesLeadSourceRow, type SalesMessageTemplateRow, type SalesNotificationPrefs } from "@/lib/api/sales";
+import { supabase } from "@/integrations/supabase/client";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 import { createSalesUser } from "@/lib/sales-users.functions";
 import { PERMISSION_GROUPS, type PermissionKey } from "@/lib/sales-permissions";
 
@@ -134,26 +134,20 @@ function UsersTab() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const [u, c] = await Promise.all([sales.salesUsers.list(), sales.taxonomy.courses.list()]);
-      setRows(u as unknown as SalesUserRow[]);
-      setCourses(c as unknown as CourseRow[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
+    const [u, c] = await Promise.all([
+      supabase.from("sales_users").select("*").order("created_at"),
+      supabase.from("sales_courses").select("*").order("sort_order"),
+    ]);
+    setRows((u.data ?? []) as SalesUserRow[]);
+    setCourses((c.data ?? []) as CourseRow[]);
+    setLoading(false);
   };
   useEffect(() => { load(); }, []);
 
   const toggleActive = async (row: SalesUserRow) => {
-    try {
-      await sales.salesUsers.update(row.id, { is_active: !row.is_active });
-      toast.success(row.is_active ? "Deactivated" : "Activated");
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
+    const { error } = await supabase.from("sales_users").update({ is_active: !row.is_active }).eq("id", row.id);
+    if (error) toast.error(error.message);
+    else { toast.success(row.is_active ? "Deactivated" : "Activated"); load(); }
   };
 
   return (
@@ -262,15 +256,16 @@ function PermissionsModal({ row, onClose, onSaved }: {
 
   const save = async () => {
     setSaving(true);
-    try {
-      await sales.salesUsers.update(row.id, { permissions: Array.from(perms) });
+    const { error } = await supabase
+      .from("sales_users")
+      .update({ permissions: Array.from(perms) })
+      .eq("id", row.id);
+    setSaving(false);
+    if (error) toast.error(error.message);
+    else {
       toast.success("Permissions updated");
       onSaved();
       onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -369,26 +364,34 @@ function UserModal({ mode, row, courses, onClose, onSaved }: {
   const [whStart, setWhStart] = useState(row?.working_hours_start ?? "09:00");
   const [whEnd, setWhEnd] = useState(row?.working_hours_end ?? "18:00");
   const [saving, setSaving] = useState(false);
+  const create = useServerFn(createSalesUser);
 
   const submit = async () => {
     setSaving(true);
     try {
       if (mode === "add") {
+        const sess = await supabase.auth.getSession();
+        const token = sess.data.session?.access_token;
+        if (!token) throw new Error("Not signed in");
         if (!password || password.length < 8) throw new Error("Password must be at least 8 characters");
-        await createSalesUser({
-          email, password, full_name, role,
-          default_course_id: defaultCourse || null,
-          working_hours_start: whStart || null,
-          working_hours_end: whEnd || null,
+        await create({
+          data: {
+            access_token: token,
+            email, password, full_name, role,
+            default_course_id: defaultCourse || null,
+            working_hours_start: whStart || null,
+            working_hours_end: whEnd || null,
+          },
         });
         toast.success("User created");
       } else if (row) {
-        await sales.salesUsers.update(row.id, {
+        const { error } = await supabase.from("sales_users").update({
           full_name, role,
           default_course_id: defaultCourse || null,
           working_hours_start: whStart || null,
           working_hours_end: whEnd || null,
-        });
+        }).eq("id", row.id);
+        if (error) throw error;
         toast.success("User updated");
       }
       onSaved();
@@ -457,36 +460,24 @@ function SourcesTab() {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [color, setColor] = useState("#3B82F6");
   const load = async () => {
-    try {
-      const data = await sales.taxonomy.leadSources.list();
-      setRows(data as unknown as SourceRow[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    }
+    const { data } = await supabase.from("sales_lead_sources").select("*").order("sort_order");
+    setRows((data ?? []) as SourceRow[]);
   };
   useEffect(() => { load(); }, []);
   const add = async () => {
     if (!name.trim()) return;
-    try {
-      const key = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      await sales.taxonomy.leadSources.create({ key, name, color, sort_order: rows.length + 1 } as Partial<SalesLeadSourceRow>);
-      setName(""); setColor("#3B82F6"); setAdding(false); load(); toast.success("Source added");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
+    const { error } = await supabase.from("sales_lead_sources").insert({ name, color, sort_order: rows.length + 1 });
+    if (error) toast.error(error.message);
+    else { setName(""); setColor("#3B82F6"); setAdding(false); load(); toast.success("Source added"); }
   };
   const toggle = async (r: SourceRow) => {
-    try {
-      await sales.taxonomy.leadSources.update(r.id, { is_active: !r.is_active });
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await supabase.from("sales_lead_sources").update({ is_active: !r.is_active }).eq("id", r.id);
+    load();
   };
   const del = async (r: SourceRow) => {
     if (!confirm(`Delete ${r.name}?`)) return;
-    try {
-      await sales.taxonomy.leadSources.remove(r.id);
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await supabase.from("sales_lead_sources").delete().eq("id", r.id);
+    load();
   };
 
   return (
@@ -531,55 +522,52 @@ export function CoursesTab() {
   const [monthly, setMonthly] = useState("0");
   const [editingFees, setEditingFees] = useState<Record<string, { admission: string; monthly: string }>>({});
   const load = async () => {
-    try {
-      const data = await sales.taxonomy.courses.list();
-      setRows(data as unknown as CourseRow[]);
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to load"); }
+    const { data } = await supabase.from("sales_courses").select("*").order("sort_order");
+    setRows((data ?? []) as CourseRow[]);
   };
   useEffect(() => { load(); }, []);
   const add = async () => {
     if (!name.trim() || !code.trim()) return;
     const a = Number(admission) || 0;
     const m = Number(monthly) || 0;
-    try {
-      const key = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-      await sales.taxonomy.courses.create({
-        key, name, short_code: code.toUpperCase(), color,
-        sort_order: rows.length + 1,
-        admission_fee: a, monthly_fee: m, default_price: a,
-      } as Partial<SalesCourseRow>);
-      setName(""); setCode(""); setColor("#3B82F6"); setAdmission("0"); setMonthly("0"); setAdding(false); load(); toast.success("Course added");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    const { error } = await supabase.from("sales_courses").insert({
+      name, short_code: code.toUpperCase(), color,
+      sort_order: rows.length + 1,
+      admission_fee: a, monthly_fee: m, default_price: a,
+    });
+    if (error) toast.error(error.message);
+    else { setName(""); setCode(""); setColor("#3B82F6"); setAdmission("0"); setMonthly("0"); setAdding(false); load(); toast.success("Course added"); }
   };
   const toggle = async (r: CourseRow) => {
-    try { await sales.taxonomy.courses.update(r.id, { is_active: !r.is_active }); load(); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await supabase.from("sales_courses").update({ is_active: !r.is_active }).eq("id", r.id); load();
   };
   const del = async (r: CourseRow) => {
     if (!confirm(`Delete ${r.name}?`)) return;
-    try { await sales.taxonomy.courses.remove(r.id); load(); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await supabase.from("sales_courses").delete().eq("id", r.id); load();
   };
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir; if (j < 0 || j >= rows.length) return;
     const a = rows[idx], b = rows[j];
-    try {
-      await Promise.all([
-        sales.taxonomy.courses.update(a.id, { sort_order: b.sort_order }),
-        sales.taxonomy.courses.update(b.id, { sort_order: a.sort_order }),
-      ]);
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await Promise.all([
+      supabase.from("sales_courses").update({ sort_order: b.sort_order }).eq("id", a.id),
+      supabase.from("sales_courses").update({ sort_order: a.sort_order }).eq("id", b.id),
+    ]);
+    load();
   };
   const saveFees = async (r: CourseRow) => {
     const draft = editingFees[r.id];
     if (!draft) return;
     const a = Number(draft.admission) || 0;
     const m = Number(draft.monthly) || 0;
-    try {
-      await sales.taxonomy.courses.update(r.id, { admission_fee: a, monthly_fee: m, default_price: a });
+    const { error } = await supabase.from("sales_courses")
+      .update({ admission_fee: a, monthly_fee: m, default_price: a })
+      .eq("id", r.id);
+    if (error) toast.error(error.message);
+    else {
       toast.success("Fees updated");
       setEditingFees((p) => { const n = { ...p }; delete n[r.id]; return n; });
       load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    }
   };
 
   return (
@@ -670,30 +658,27 @@ const PREF_FIELDS = [
 ] as const;
 
 function NotificationsTab() {
+  const { authUser } = useSalesAuth();
   const [prefs, setPrefs] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!authUser) return;
     (async () => {
-      try {
-        const data = await sales.notificationPrefs.show();
-        setPrefs(data as unknown as Record<string, boolean>);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to load");
-      } finally {
-        setLoading(false);
-      }
+      const { data } = await supabase.from("sales_notification_prefs").select("*").eq("user_id", authUser.id).maybeSingle();
+      setPrefs(data ?? {
+        follow_up_reminder_inapp: true, follow_up_reminder_email: false,
+        overdue_alert: true, new_lead_assigned: true, csv_import_complete: true, status_changed: false,
+      });
+      setLoading(false);
     })();
-  }, []);
+  }, [authUser]);
 
   const save = async (next: Record<string, boolean>) => {
+    if (!authUser) return;
     setPrefs(next);
-    try {
-      await sales.notificationPrefs.update(next as unknown as Partial<SalesNotificationPrefs>);
-      toast.success("Saved");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
+    const { error } = await supabase.from("sales_notification_prefs").upsert({ user_id: authUser.id, ...next });
+    if (error) toast.error(error.message); else toast.success("Saved");
   };
 
   if (loading) return <Loader2 className="mx-auto mt-8 h-5 w-5 animate-spin text-muted-foreground" />;
@@ -728,35 +713,23 @@ function SystemTab() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const data = await sales.taxonomy.systemSettings.show();
-        if (data) {
-          if (data.working_hours_start) setStart(String(data.working_hours_start).slice(0, 5));
-          if (data.working_hours_end) setEnd(String(data.working_hours_end).slice(0, 5));
-          setAutoAssign(!!data.auto_assign_round_robin);
-        }
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to load");
-      } finally {
-        setLoading(false);
+      const { data } = await supabase.from("sales_system_settings").select("*").eq("id", 1).maybeSingle();
+      if (data) {
+        setStart((data.working_hours_start as string).slice(0, 5));
+        setEnd((data.working_hours_end as string).slice(0, 5));
+        setAutoAssign(!!data.auto_assign_round_robin);
       }
+      setLoading(false);
     })();
   }, []);
 
   const save = async () => {
     setSaving(true);
-    try {
-      await sales.taxonomy.systemSettings.update({
-        working_hours_start: `${start}:00`,
-        working_hours_end: `${end}:00`,
-        auto_assign_round_robin: autoAssign,
-      });
-      toast.success("Settings saved");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
-    }
+    const { error } = await supabase.from("sales_system_settings").update({
+      working_hours_start: start, working_hours_end: end, auto_assign_round_robin: autoAssign, updated_at: new Date().toISOString(),
+    }).eq("id", 1);
+    if (error) toast.error(error.message); else toast.success("Settings saved");
+    setSaving(false);
   };
 
   if (loading) return <Loader2 className="mx-auto mt-8 h-5 w-5 animate-spin text-muted-foreground" />;
@@ -798,15 +771,10 @@ function PipelineTab() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const data = await sales.taxonomy.statuses.list();
-      setRows(data as unknown as SalesStatus[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-      void reloadCtx();
-    }
+    const { data } = await supabase.from("sales_statuses").select("*").order("sort_order");
+    setRows((data ?? []) as SalesStatus[]);
+    setLoading(false);
+    void reloadCtx();
   };
   useEffect(() => { load(); }, []);
 
@@ -814,40 +782,28 @@ function PipelineTab() {
     const idx = rows.findIndex((r) => r.id === row.id);
     const swap = rows[idx + dir];
     if (!swap) return;
-    try {
-      await Promise.all([
-        sales.taxonomy.statuses.update(row.id, { sort_order: swap.sort_order }),
-        sales.taxonomy.statuses.update(swap.id, { sort_order: row.sort_order }),
-      ]);
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await Promise.all([
+      supabase.from("sales_statuses").update({ sort_order: swap.sort_order }).eq("id", row.id),
+      supabase.from("sales_statuses").update({ sort_order: row.sort_order }).eq("id", swap.id),
+    ]);
+    load();
   };
 
   const toggleActive = async (row: SalesStatus) => {
-    try {
-      await sales.taxonomy.statuses.update(row.id, { is_active: !row.is_active });
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    await supabase.from("sales_statuses").update({ is_active: !row.is_active }).eq("id", row.id);
+    load();
   };
 
   const remove = async (row: SalesStatus) => {
-    try {
-      const res = await sales.leads.list({ status: row.key, per_page: 1 });
-      const total = (res as { meta?: { total?: number } }).meta?.total ?? (Array.isArray(res) ? res.length : 0);
-      if (total > 0) {
-        toast.error(`এই status এ ${total} টি lead আছে — আগে move করুন`);
-        return;
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+    const { count } = await supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", row.key);
+    if (count && count > 0) {
+      toast.error(`এই status এ ${count} টি lead আছে — আগে move করুন`);
       return;
     }
     if (!confirm(`Delete "${row.label}"?`)) return;
-    try {
-      await sales.taxonomy.statuses.remove(row.id);
-      toast.success("Deleted");
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    const { error } = await supabase.from("sales_statuses").delete().eq("id", row.id);
+    if (error) toast.error(error.message);
+    else { toast.success("Deleted"); load(); }
   };
 
   return (
@@ -927,19 +883,12 @@ function StatusModal({ row, existingKeys, nextOrder, onClose, onSaved }: {
     }
     if (!label || !k) { toast.error("Label required"); setSaving(false); return; }
     const payload = { label, color, is_won: isWon, is_default: isDefault };
-    try {
-      if (isNew) {
-        await sales.taxonomy.statuses.create({ ...payload, key: k, sort_order: nextOrder });
-      } else {
-        await sales.taxonomy.statuses.update(row!.id, payload);
-      }
-      toast.success("Saved");
-      onSaved();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
-    }
+    const { error } = isNew
+      ? await supabase.from("sales_statuses").insert({ ...payload, key: k, sort_order: nextOrder })
+      : await supabase.from("sales_statuses").update(payload).eq("id", row!.id);
+    setSaving(false);
+    if (error) toast.error(error.message);
+    else { toast.success("Saved"); onSaved(); }
   };
 
   return (
@@ -1025,40 +974,32 @@ function TargetsTab() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const [r, t, wonLeads] = await Promise.all([
-        sales.salesUsers.list(),
-        sales.targets.list({ month: periodDate, period_type: periodType }),
-        sales.leads.listAll({ won_from: start.toISOString(), won_to: end.toISOString() }),
-      ]);
-      setReps(r as unknown as RepLite[]);
-      setTargets(t as unknown as TargetRow[]);
-      const map: Record<string, number> = {};
-      for (const row of wonLeads as { assigned_to: string | null; deal_value: number | null }[]) {
-        if (!row.assigned_to) continue;
-        map[row.assigned_to] = (map[row.assigned_to] ?? 0) + Number(row.deal_value ?? 0);
-      }
-      setAchieved(map);
-      setEdits({});
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
+    const [r, t, w] = await Promise.all([
+      supabase.from("sales_users").select("id,full_name,role").order("full_name"),
+      supabase.from("sales_targets").select("*").eq("month", periodDate).eq("period_type", periodType),
+      supabase.from("leads").select("assigned_to,deal_value,won_at").gte("won_at", start.toISOString()).lt("won_at", end.toISOString()),
+    ]);
+    setReps((r.data ?? []) as RepLite[]);
+    setTargets((t.data ?? []) as TargetRow[]);
+    const map: Record<string, number> = {};
+    for (const row of (w.data ?? []) as { assigned_to: string | null; deal_value: number | null }[]) {
+      if (!row.assigned_to) continue;
+      map[row.assigned_to] = (map[row.assigned_to] ?? 0) + Number(row.deal_value ?? 0);
     }
+    setAchieved(map);
+    setEdits({});
+    setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [periodDate, periodType]);
 
   const targetFor = (uid: string) => targets.find((t) => t.sales_user_id === uid)?.target_amount ?? 0;
   const save = async (uid: string) => {
     const v = Number(edits[uid] ?? targetFor(uid)) || 0;
-    try {
-      await sales.targets.upsert({ sales_user_id: uid, month: periodDate, period_type: periodType, target_amount: v });
-      toast.success("Target saved");
-      setEdits((p) => { const n = { ...p }; delete n[uid]; return n; });
-      load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
+    const { error } = await supabase.from("sales_targets").upsert(
+      { sales_user_id: uid, month: periodDate, period_type: periodType, target_amount: v },
+      { onConflict: "sales_user_id,period_type,month" },
+    );
+    if (error) toast.error(error.message); else { toast.success("Target saved"); setEdits((p) => { const n = { ...p }; delete n[uid]; return n; }); load(); }
   };
 
   const totalTarget = reps.reduce((s, r) => s + targetFor(r.id), 0);
@@ -1191,14 +1132,16 @@ function TemplatesTab() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const data = await sales.taxonomy.messageTemplates.list();
-      setRows(data as unknown as Template[]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
+    const { data, error } = await supabase
+      .from("sales_message_templates")
+      .select("*")
+      .order("sort_order", { ascending: true });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
     }
+    setRows((data ?? []) as Template[]);
   };
 
   useEffect(() => {
@@ -1207,18 +1150,21 @@ function TemplatesTab() {
 
   const remove = async (id: string) => {
     if (!confirm("Delete this template?")) return;
-    try {
-      await sales.taxonomy.messageTemplates.remove(id);
+    const { error } = await supabase.from("sales_message_templates").delete().eq("id", id);
+    if (error) toast.error(error.message);
+    else {
       toast.success("Deleted");
       load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    }
   };
 
   const toggleActive = async (t: Template) => {
-    try {
-      await sales.taxonomy.messageTemplates.update(t.id, { is_active: !t.is_active });
-      load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    const { error } = await supabase
+      .from("sales_message_templates")
+      .update({ is_active: !t.is_active })
+      .eq("id", t.id);
+    if (error) toast.error(error.message);
+    else load();
   };
 
   return (
@@ -1336,26 +1282,23 @@ function TemplateModal({
       return;
     }
     setSaving(true);
-    const payload: Partial<SalesMessageTemplateRow> = {
+    const payload = {
       name: name.trim(),
       category: category.trim() || "general",
       body: body,
       sort_order: sortOrder,
     };
-    try {
-      if (row) {
-        await sales.taxonomy.messageTemplates.update(row.id, payload);
-      } else {
-        const key = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-        await sales.taxonomy.messageTemplates.create({ ...payload, key, channel: "whatsapp" });
-      }
-      toast.success(row ? "Updated" : "Created");
-      onSaved();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSaving(false);
+    const q = row
+      ? supabase.from("sales_message_templates").update(payload).eq("id", row.id)
+      : supabase.from("sales_message_templates").insert(payload);
+    const { error } = await q;
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
     }
+    toast.success(row ? "Updated" : "Created");
+    onSaved();
   };
 
   return (
@@ -1509,22 +1452,18 @@ function AuditLogTab() {
 
   async function load() {
     setLoading(true);
-    try {
-      const query: Record<string, string | number> = { per_page: limit };
-      if (tableFilter) query.table_name = tableFilter;
-      if (actionFilter) query.action = actionFilter;
-      const res = await sales.auditLogs.list(query as Parameters<typeof sales.auditLogs.list>[0]);
-      let list = unwrapList(res) as unknown as AuditEntry[];
-      if (actorFilter) {
-        const needle = actorFilter.toLowerCase();
-        list = list.filter((r) => (r.actor_email ?? "").toLowerCase().includes(needle));
-      }
-      setRows(list);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
+    let q = supabase
+      .from("sales_audit_log")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (tableFilter) q = q.eq("table_name", tableFilter);
+    if (actionFilter) q = q.eq("action", actionFilter);
+    if (actorFilter) q = q.ilike("actor_email", `%${actorFilter}%`);
+    const { data, error } = await q;
+    if (error) toast.error(error.message);
+    setRows((data as AuditEntry[]) ?? []);
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -1773,18 +1712,17 @@ function RolePermissionsTab({ onSaved }: { onSaved?: () => void }) {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const data = await sales.rolePermissions.list();
-      const list = (data as unknown as { role: "admin" | "executive"; permissions: string[]; updated_at: string }[]) ?? [];
-      setRows(list);
-      const d: Record<string, Set<string>> = {};
-      for (const r of list) d[r.role] = new Set(r.permissions ?? []);
-      setDraft(d);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
+    const { data, error } = await supabase
+      .from("sales_role_permissions")
+      .select("role, permissions, updated_at")
+      .order("role");
+    if (error) toast.error(error.message);
+    const list = (data ?? []) as { role: "admin" | "executive"; permissions: string[]; updated_at: string }[];
+    setRows(list);
+    const d: Record<string, Set<string>> = {};
+    for (const r of list) d[r.role] = new Set(r.permissions ?? []);
+    setDraft(d);
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
@@ -1806,17 +1744,16 @@ function RolePermissionsTab({ onSaved }: { onSaved?: () => void }) {
   const save = async (role: "admin" | "executive") => {
     setSavingRole(role);
     const perms = Array.from(draft[role] ?? new Set<string>());
-    try {
-      await sales.rolePermissions.update(role, { permissions: perms });
-      toast.success(`${role === "admin" ? "Admin" : "Sales Executive"} role permissions saved`);
-      await load();
-      await refresh();
-      onSaved?.();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSavingRole(null);
-    }
+    const { error } = await supabase
+      .from("sales_role_permissions")
+      .update({ permissions: perms })
+      .eq("role", role);
+    setSavingRole(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${role === "admin" ? "Admin" : "Sales Executive"} role permissions saved`);
+    await load();
+    await refresh();
+    onSaved?.();
   };
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
