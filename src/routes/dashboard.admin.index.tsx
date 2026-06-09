@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { adminStats } from "@/server/admin";
-import { adminAuditList } from "@/server/bulk";
+import { adminStats } from "@/rpc/admin";
+import { adminAuditList } from "@/rpc/bulk";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {

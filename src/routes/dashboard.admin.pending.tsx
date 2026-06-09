@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { adminListStudents, adminSetStudentStatus, adminDeleteStudent } from "@/server/admin";
+import { adminListStudents, adminSetStudentStatus, adminDeleteStudent } from "@/rpc/admin";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
