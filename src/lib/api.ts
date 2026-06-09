@@ -1,6 +1,6 @@
 const RAW_BASE =
   (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL) ||
-  "http://localhost:5000/api/v1";
+  "https://admin.learniby.com/api/v1";
 export const API_BASE_URL: string = String(RAW_BASE).replace(/\/+$/, "");
 
 const ACCESS_KEY = "learniby.access_token";
