@@ -101,6 +101,17 @@ const ACTIVITY_META: Record<
   lead_assigned: { label: "Lead Assigned", bg: "bg-indigo-500", text: "text-white", icon: UserPlus },
 };
 
+const FALLBACK_ACTIVITY_META = {
+  label: "Activity",
+  bg: "bg-slate-500",
+  text: "text-white",
+  icon: Activity,
+} satisfies { label: string; bg: string; text: string; icon: LucideIcon };
+
+function getActivityMeta(type: string) {
+  return ACTIVITY_META[type as ActivityType] ?? FALLBACK_ACTIVITY_META;
+}
+
 // PIPELINE is now derived from the dynamic sales_statuses table at runtime.
 
 interface Props {
@@ -184,7 +195,7 @@ export function LeadDetail({ leadId }: Props) {
 
     const amountLine =
       movingToWon && dealAmount != null
-        ? `\nFinal Sale Amount: ₹${Number(dealAmount).toLocaleString("en-IN")}`
+        ? `\nFinal Sale Amount: ৳${Number(dealAmount).toLocaleString("en-IN")}`
         : "";
     const desc = `${fromLabel} → ${toLabel} · via ${pLabel}\n${note}${amountLine}`;
     await Activities.create(lead.id, {
@@ -806,7 +817,7 @@ function Timeline({
         <ol className="relative space-y-5">
           <span className="absolute left-[19px] top-2 bottom-2 w-px bg-border" />
           {activities.map((a, i) => {
-            const m = ACTIVITY_META[a.type];
+            const m = getActivityMeta(a.type);
             const ActIcon = m.icon;
             const rep = reps.find((r) => r.id === a.created_by);
             const repAv = rep ? avatarFor(rep.full_name) : null;
@@ -822,7 +833,7 @@ function Timeline({
                 transition={{ delay: i * 0.05 }}
                 className="relative flex gap-3 rounded-lg p-1.5 pl-0"
               >
-                <div className={cn("z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full", m.bg, m.text)}>
+                <div className={cn("z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full", m?.bg, m?.text)}>
                   <ActIcon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">

@@ -156,7 +156,7 @@ export function AddExpenseModal({ open, onClose, onSaved, editing }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Amount (₹) <span className="text-rose-500">*</span></Label>
+              <Label>Amount (৳) <span className="text-rose-500">*</span></Label>
               <Input
                 type="number"
                 inputMode="decimal"

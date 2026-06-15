@@ -634,10 +634,10 @@ export function CoursesTab() {
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border bg-card p-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Course name" className="input flex-1 min-w-[180px]" />
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="CODE" className="input w-24" />
-          <label className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">Admission ₹
+          <label className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">Admission ৳
             <input type="number" value={admission} onChange={(e) => setAdmission(e.target.value)} className="input w-24" min={0} />
           </label>
-          <label className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">Monthly ₹
+          <label className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">Monthly ৳
             <input type="number" value={monthly} onChange={(e) => setMonthly(e.target.value)} className="input w-24" min={0} />
           </label>
           <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-12 cursor-pointer rounded border border-border" />
@@ -664,7 +664,7 @@ export function CoursesTab() {
             <span className="rounded px-2 py-0.5 text-xs font-bold text-white" style={{ background: r.color }}>{r.short_code}</span>
             <span className="flex-1 min-w-[140px] font-semibold">{r.name}</span>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground">Admission ₹</span>
+              <span className="text-[11px] font-semibold text-muted-foreground">Admission ৳</span>
               <input
                 type="number"
                 value={isEditing ? draft.admission : String(r.admission_fee ?? 0)}
@@ -674,7 +674,7 @@ export function CoursesTab() {
               />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground">Monthly ₹</span>
+              <span className="text-[11px] font-semibold text-muted-foreground">Monthly ৳</span>
               <input
                 type="number"
                 value={isEditing ? draft.monthly : String(r.monthly_fee ?? 0)}
@@ -1140,11 +1140,11 @@ function TargetsTab() {
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Total Target</div>
-          <div className="mt-1 text-xl font-extrabold">₹{totalTarget.toLocaleString("en-IN")}</div>
+          <div className="mt-1 text-xl font-extrabold">৳{totalTarget.toLocaleString("en-IN")}</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Total Achieved</div>
-          <div className="mt-1 text-xl font-extrabold text-emerald-600">₹{totalAchieved.toLocaleString("en-IN")}</div>
+          <div className="mt-1 text-xl font-extrabold text-emerald-600">৳{totalAchieved.toLocaleString("en-IN")}</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Overall Progress</div>
@@ -1165,8 +1165,8 @@ function TargetsTab() {
               <tr>
                 <th className="px-4 py-3">Sales Rep</th>
                 <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Target ₹</th>
-                <th className="px-4 py-3">Achieved ₹</th>
+                <th className="px-4 py-3">Target ৳</th>
+                <th className="px-4 py-3">Achieved ৳</th>
                 <th className="px-4 py-3">Progress</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -1190,7 +1190,7 @@ function TargetsTab() {
                         className="input w-32 py-1"
                       />
                     </td>
-                    <td className="px-4 py-3 font-semibold text-emerald-600">₹{ach.toLocaleString("en-IN")}</td>
+                    <td className="px-4 py-3 font-semibold text-emerald-600">৳{ach.toLocaleString("en-IN")}</td>
                     <td className="px-4 py-3 min-w-[160px]">
                       <div className="flex items-center gap-2">
                         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">

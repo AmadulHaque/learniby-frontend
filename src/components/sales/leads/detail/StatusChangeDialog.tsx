@@ -179,7 +179,7 @@ export function StatusChangeDialog({
                 Final Sale Amount <span className="text-rose-500">*</span>
               </Label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-emerald-700">₹</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-emerald-700">৳</span>
                 <Input
                   type="number"
                   inputMode="decimal"

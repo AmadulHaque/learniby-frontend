@@ -192,7 +192,7 @@ export function scoreTier(score: number): {
 
 export function formatMoney(n: number | null | undefined): string {
   const v = Number(n ?? 0);
-  return "₹" + v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  return "৳" + v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
 export function monthKey(d: Date | string): string {
@@ -323,11 +323,11 @@ export const SOURCE_META: Record<
 };
 
 export const BUDGET_OPTIONS: { value: BudgetRange; label: string }[] = [
-  { value: "under_5k", label: "Under ₹5,000" },
-  { value: "5k_10k", label: "₹5,000–10,000" },
-  { value: "10k_20k", label: "₹10,000–20,000" },
-  { value: "20k_30k", label: "₹20,000–30,000" },
-  { value: "above_30k", label: "Above ₹30,000" },
+  { value: "under_5k", label: "Under ৳5,000" },
+  { value: "5k_10k", label: "৳5,000–10,000" },
+  { value: "10k_20k", label: "৳10,000–20,000" },
+  { value: "20k_30k", label: "৳20,000–30,000" },
+  { value: "above_30k", label: "Above ৳30,000" },
   { value: "not_disclosed", label: "Not Disclosed" },
 ];
 

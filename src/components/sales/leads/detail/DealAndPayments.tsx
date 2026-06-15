@@ -163,7 +163,7 @@ export function DealAndPayments({
         {editingValue ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-xl font-bold text-muted-foreground">₹</span>
+              <span className="text-xl font-bold text-muted-foreground">৳</span>
               <Input
                 type="number"
                 min={0}
@@ -223,7 +223,7 @@ export function DealAndPayments({
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-bold uppercase text-violet-800">Monthly Fee (per course)</p>
             <span className="rounded-md bg-violet-600 px-2 py-0.5 text-[11px] font-bold text-white">
-              Total ₹ {formatMoney(totalMonthly).replace(/^₹\s*/, "")}
+              Total ৳ {formatMoney(totalMonthly).replace(/^৳\s*/, "")}
             </span>
           </div>
           <p className="mb-3 text-[11px] text-violet-700/80">
@@ -244,7 +244,7 @@ export function DealAndPayments({
                     {c.short_code}
                   </span>
                   <span className="flex-1 min-w-[100px] text-sm font-semibold">{c.name}</span>
-                  <span className="text-[11px] text-muted-foreground">₹</span>
+                  <span className="text-[11px] text-muted-foreground">৳</span>
                   <Input
                     type="number"
                     min={0}
@@ -282,7 +282,7 @@ export function DealAndPayments({
           <div className="mb-3 space-y-2 rounded-lg border border-dashed border-border bg-muted/30 p-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label className="text-xs">Amount ₹</Label>
+                <Label className="text-xs">Amount ৳</Label>
                 <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
               </div>
               <div>
