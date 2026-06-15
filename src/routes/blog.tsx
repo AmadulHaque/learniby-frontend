@@ -1,11 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { TopBar, SiteHeader, SiteFooter, BRAND } from "@/components/marketing/site-chrome";
 import b1 from "@/assets/marketing/blog1.webp";
 import b2 from "@/assets/marketing/blog2.webp";
 import b3 from "@/assets/marketing/blog3.webp";
 import b4 from "@/assets/marketing/blog4.webp";
 
-export const Route = createFileRoute("/blog")({
+export const Route = defineRoute("/blog")({
   head: () => ({
     meta: [
       { title: "Blog — Learniby" },

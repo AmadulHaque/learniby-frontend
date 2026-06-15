@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -14,7 +14,7 @@ import {
 import { toast } from "sonner";
 import { Search, UserPlus, Loader2, KeyRound, Trash2, Mail, Phone } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/manager/students")({
+export const Route = defineRoute("/dashboard/manager/students")({
   component: StudentsPage,
 });
 

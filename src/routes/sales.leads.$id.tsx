@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { LeadDetail } from "@/components/sales/leads/detail/LeadDetail";
 
-export const Route = createFileRoute("/sales/leads/$id")({
+export const Route = defineRoute("/sales/leads/$id")({
   component: LeadDetailRoute,
 });
 

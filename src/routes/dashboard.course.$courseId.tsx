@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
+import { defineRoute, Navigate, Link } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppHeader } from "@/components/AppHeader";
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +10,7 @@ import { CheckCircle2, ChevronLeft, PlayCircle, Layers, Filter } from "lucide-re
 import { fetchUserProgress, type ProgressRow } from "@/lib/progress";
 import { Button } from "@/components/ui/button";
 
-export const Route = createFileRoute("/dashboard/course/$courseId")({
+export const Route = defineRoute("/dashboard/course/$courseId")({
   component: CoursePage,
 });
 

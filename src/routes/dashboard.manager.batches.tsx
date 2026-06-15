@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Building2, Plus, Trash2, Loader2, Users } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { Batches, type BatchRow } from "@/lib/teacher-api";
 
-export const Route = createFileRoute("/dashboard/manager/batches")({
+export const Route = defineRoute("/dashboard/manager/batches")({
   component: BatchesPage,
 });
 

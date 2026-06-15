@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link } from "@/lib/router-compat";
 
 export function AuthTabs({ active }: { active: "login" | "register" }) {
   const Tab = ({ to, label, isActive }: { to: "/dashboard/login" | "/dashboard/register"; label: string; isActive: boolean }) => (

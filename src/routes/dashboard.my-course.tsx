@@ -1,11 +1,11 @@
-import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
+import { defineRoute, Navigate, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { StudentShell } from "@/components/course/StudentShell";
 import { Monitor, PlayCircle, Loader2 } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/my-course")({
+export const Route = defineRoute("/dashboard/my-course")({
   component: MyCoursePage,
   head: () => ({ meta: [{ title: "আমার কোর্স — Learniby" }] }),
 });

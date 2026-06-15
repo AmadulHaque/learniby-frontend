@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Navigate, Link } from "@tanstack/react-router";
+import { defineRoute, useNavigate, Navigate, Link } from "@/lib/router-compat";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import logo from "@/assets/learniby-logo.webp";
 import { AuthTabs } from "@/components/course/AuthTabs";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/dashboard/login")({
+export const Route = defineRoute("/dashboard/login")({
   component: LoginPage,
 });
 

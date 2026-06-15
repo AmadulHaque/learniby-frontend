@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Radio, Calendar, ExternalLink, Loader2 } from "lucide-react";
@@ -11,7 +11,7 @@ import {
 } from "@/lib/teacher-api";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/dashboard/teacher/")({
+export const Route = defineRoute("/dashboard/teacher/")({
   component: TeacherHome,
 });
 

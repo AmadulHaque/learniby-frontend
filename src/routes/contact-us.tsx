@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { useState } from "react";
 import { z } from "zod";
 import { MapPin, Phone, Mail } from "lucide-react";
 import { TopBar, SiteHeader, SiteFooter, BRAND } from "@/components/marketing/site-chrome";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/contact-us")({
+export const Route = defineRoute("/contact-us")({
   head: () => ({
     meta: [
       { title: "Contact Us — Learniby" },

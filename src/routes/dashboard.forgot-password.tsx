@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { defineRoute, Link, useNavigate } from "@/lib/router-compat";
 import { useState, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Loader2, KeyRound, CheckCircle2 } from "lucide-react";
 import logo from "@/assets/learniby-logo.webp";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/dashboard/forgot-password")({
+export const Route = defineRoute("/dashboard/forgot-password")({
   component: ForgotPasswordPage,
 });
 

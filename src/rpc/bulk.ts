@@ -1,35 +1,64 @@
-import { createServerFn } from "@tanstack/react-start";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabase } from "@/integrations/supabase/client";
 import { createClient } from "@supabase/supabase-js";
-import { logAudit } from "@/lib/audit.server";
 
 const SUPABASE_URL = "https://tqydqebwrfqazkoidxbh.supabase.co";
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxeWRxZWJ3cmZxYXprb2lkeGJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NTM2MDQsImV4cCI6MjA5MjQyOTYwNH0.hseWwWb8Bh1gG7RB6U0_WEi9A535zSUB2Qin-BsJ1_w";
+
+function createClientFn(_opts: { method: "GET" | "POST" }) {
+  return {
+    inputValidator<TInput>(validator: (input: TInput) => TInput) {
+      return {
+        handler<TResult>(fn: (args: { data: TInput }) => Promise<TResult>) {
+          return async (args: { data: TInput }) => fn({ data: validator(args.data) });
+        },
+      };
+    },
+  };
+}
+
+async function logAudit(opts: {
+  actorId: string;
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  meta?: Record<string, unknown>;
+}) {
+  await supabase.from("admin_audit_log").insert({
+    actor_id: opts.actorId,
+    action: opts.action,
+    target_type: opts.targetType ?? null,
+    target_id: opts.targetId ?? null,
+    meta: opts.meta ?? {},
+  });
+}
 
 async function getUserId(token: string): Promise<string> {
   const c = createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false },
   });
-  const { data: { user }, error } = await c.auth.getUser();
+  const {
+    data: { user },
+    error,
+  } = await c.auth.getUser();
   if (error || !user) throw new Error("Unauthorized");
   return user.id;
 }
 async function assertAdmin(token: string): Promise<string> {
   const uid = await getUserId(token);
-  const { data: roles } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", uid);
+  const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", uid);
   const ok = (roles ?? []).some((r) => r.role === "admin" || r.role === "teacher");
   if (!ok) throw new Error("Admin access required");
   return uid;
 }
 
 // ---- List students of a batch (for bulk grant picker) ----
-export const adminListBatchStudents = createServerFn({ method: "POST" })
+export const adminListBatchStudents = createClientFn({ method: "POST" })
   .inputValidator((input: { accessToken: string; batchNumber: string }) => input)
   .handler(async ({ data }) => {
     await assertAdmin(data.accessToken);
-    const { data: rows } = await supabaseAdmin
+    const { data: rows } = await supabase
       .from("profiles")
       .select("id, full_name, email, student_id, batch_number")
       .eq("status", "approved")
@@ -38,11 +67,11 @@ export const adminListBatchStudents = createServerFn({ method: "POST" })
   });
 
 // ---- List all distinct batch numbers (from approved students) ----
-export const adminListBatches = createServerFn({ method: "POST" })
+export const adminListBatches = createClientFn({ method: "POST" })
   .inputValidator((input: { accessToken: string }) => input)
   .handler(async ({ data }) => {
     await assertAdmin(data.accessToken);
-    const { data: rows } = await supabaseAdmin
+    const { data: rows } = await supabase
       .from("profiles")
       .select("batch_number")
       .eq("status", "approved")
@@ -60,34 +89,33 @@ export const adminListBatches = createServerFn({ method: "POST" })
   });
 
 // ---- Bulk grant a course's videos (or specific module's) to a batch ----
-export const adminBulkGrantBatch = createServerFn({ method: "POST" })
-  .inputValidator((input: {
-    accessToken: string;
-    batchNumber: string;
-    courseId: string;
-    moduleId?: string; // optional — if set, only that module's videos
-    studentIds?: string[]; // optional override; if absent we use entire batch
-  }) => input)
+export const adminBulkGrantBatch = createClientFn({ method: "POST" })
+  .inputValidator(
+    (input: {
+      accessToken: string;
+      batchNumber: string;
+      courseId: string;
+      moduleId?: string; // optional — if set, only that module's videos
+      studentIds?: string[]; // optional override; if absent we use entire batch
+    }) => input,
+  )
   .handler(async ({ data }) => {
     const adminId = await assertAdmin(data.accessToken);
 
     // Collect target videos
-    const modQ = supabaseAdmin.from("modules").select("id").eq("course_id", data.courseId);
+    const modQ = supabase.from("modules").select("id").eq("course_id", data.courseId);
     const { data: mods } = data.moduleId ? await modQ.eq("id", data.moduleId) : await modQ;
     const modIds = (mods ?? []).map((m) => m.id);
     if (modIds.length === 0) return { granted: 0, students: 0, videos: 0 };
 
-    const { data: vids } = await supabaseAdmin
-      .from("videos")
-      .select("id")
-      .in("module_id", modIds);
+    const { data: vids } = await supabase.from("videos").select("id").in("module_id", modIds);
     const videoIds = (vids ?? []).map((v) => v.id);
     if (videoIds.length === 0) return { granted: 0, students: 0, videos: 0 };
 
     // Collect target students
     let studentIds = data.studentIds ?? [];
     if (studentIds.length === 0) {
-      const { data: studs } = await supabaseAdmin
+      const { data: studs } = await supabase
         .from("profiles")
         .select("id")
         .eq("status", "approved")
@@ -97,7 +125,7 @@ export const adminBulkGrantBatch = createServerFn({ method: "POST" })
     if (studentIds.length === 0) return { granted: 0, students: 0, videos: videoIds.length };
 
     // Fetch existing rows for diff
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await supabase
       .from("video_access")
       .select("user_id, video_id")
       .in("user_id", studentIds)
@@ -118,7 +146,7 @@ export const adminBulkGrantBatch = createServerFn({ method: "POST" })
       const CHUNK = 500;
       for (let i = 0; i < toInsert.length; i += CHUNK) {
         const slice = toInsert.slice(i, i + CHUNK);
-        const { error } = await supabaseAdmin.from("video_access").insert(slice);
+        const { error } = await supabase.from("video_access").insert(slice);
         if (error) throw new Error(error.message);
       }
     }
@@ -145,12 +173,12 @@ export const adminBulkGrantBatch = createServerFn({ method: "POST" })
   });
 
 // ---- Audit log reader ----
-export const adminAuditList = createServerFn({ method: "POST" })
+export const adminAuditList = createClientFn({ method: "POST" })
   .inputValidator((input: { accessToken: string; limit?: number }) => input)
   .handler(async ({ data }) => {
     await assertAdmin(data.accessToken);
     const limit = Math.min(Math.max(data.limit ?? 100, 1), 500);
-    const { data: rows } = await supabaseAdmin
+    const { data: rows } = await supabase
       .from("admin_audit_log")
       .select("id, actor_id, action, target_type, target_id, meta, created_at")
       .order("created_at", { ascending: false })
@@ -158,16 +186,18 @@ export const adminAuditList = createServerFn({ method: "POST" })
     const ids = [...new Set((rows ?? []).map((r) => r.actor_id).filter(Boolean) as string[])];
     let nameMap = new Map<string, string>();
     if (ids.length) {
-      const { data: profs } = await supabaseAdmin
+      const { data: profs } = await supabase
         .from("profiles")
         .select("id, full_name, email")
         .in("id", ids);
-      nameMap = new Map((profs ?? []).map((p) => [p.id, p.full_name || p.email || p.id.slice(0, 8)]));
+      nameMap = new Map(
+        (profs ?? []).map((p) => [p.id, p.full_name || p.email || p.id.slice(0, 8)]),
+      );
     }
     return {
       entries: (rows ?? []).map((r) => ({
         ...r,
-        actor_name: r.actor_id ? nameMap.get(r.actor_id) ?? r.actor_id.slice(0, 8) : "system",
+        actor_name: r.actor_id ? (nameMap.get(r.actor_id) ?? r.actor_id.slice(0, 8)) : "system",
       })),
     };
   });

@@ -1,5 +1,5 @@
 import { type ReactNode, useState, type ComponentType } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@/lib/router-compat";
 import { ChevronLeft, ChevronRight, Bell, LogOut } from "lucide-react";
 import logo from "@/assets/marketing/learniby-logo.webp";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,10 +33,7 @@ export function PanelShell({
   const { user, signOut } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const name =
-    (user?.user_metadata as { full_name?: string } | undefined)?.full_name?.trim() ||
-    user?.email?.split("@")[0] ||
-    "User";
+  const name = user?.profile?.full_name?.trim() || user?.email?.split("@")[0] || "User";
   const initial = name.charAt(0).toUpperCase();
 
   const isActive = (item: PanelNavItem) =>

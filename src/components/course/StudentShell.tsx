@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@/lib/router-compat";
 import {
   LayoutGrid,
   Monitor,
@@ -51,10 +51,7 @@ export function StudentShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  const name =
-    (user?.user_metadata as { full_name?: string } | undefined)?.full_name?.trim() ||
-    user?.email?.split("@")[0] ||
-    "শিক্ষার্থী";
+  const name = user?.profile?.full_name?.trim() || user?.email?.split("@")[0] || "শিক্ষার্থী";
   const initial = name.charAt(0).toUpperCase();
 
   return (
@@ -117,9 +114,7 @@ export function StudentShell({ children }: { children: ReactNode }) {
                   to={item.to}
                   className={[
                     "flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] font-semibold transition",
-                    isActive
-                      ? "text-white shadow-sm"
-                      : "text-slate-700 hover:bg-slate-50",
+                    isActive ? "text-white shadow-sm" : "text-slate-700 hover:bg-slate-50",
                   ].join(" ")}
                   style={isActive ? { background: BRAND.primary } : undefined}
                 >
@@ -145,9 +140,7 @@ export function StudentShell({ children }: { children: ReactNode }) {
           {NAV.slice(0, 5).map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.to === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname.startsWith(item.to);
+              item.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.to);
             return (
               <Link
                 key={item.to}

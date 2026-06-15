@@ -1,9 +1,9 @@
-import { createFileRoute, Outlet, Navigate } from "@tanstack/react-router";
+import { defineRoute, Outlet, Navigate } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { PanelShell, type PanelNavItem } from "@/components/course/PanelShell";
 import { LayoutDashboard, Radio, Loader2, GraduationCap } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/teacher")({
+export const Route = defineRoute("/dashboard/teacher")({
   component: TeacherLayout,
 });
 

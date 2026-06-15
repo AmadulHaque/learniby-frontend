@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Pencil, PlayCircle, ChevronLeft, Layers, Users, Loader2 } from "lucide-react";
 import { extractYouTubeId, youtubeThumbnail, fetchYouTubeOEmbed, fmtDuration } from "@/lib/youtube";
 
-export const Route = createFileRoute("/dashboard/admin/course/$courseId")({
+export const Route = defineRoute("/dashboard/admin/course/$courseId")({
   component: CourseDetail,
 });
 

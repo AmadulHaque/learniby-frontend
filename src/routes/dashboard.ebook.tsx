@@ -1,9 +1,9 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { StudentShell } from "@/components/course/StudentShell";
 import { BookOpen } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/ebook")({
+export const Route = defineRoute("/dashboard/ebook")({
   component: EbookPage,
   head: () => ({ meta: [{ title: "ই-বুক — Learniby" }] }),
 });

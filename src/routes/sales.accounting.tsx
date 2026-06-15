@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Wallet, Trophy, TrendingUp, Download, Search, ArrowUpRight, Target as TargetIcon, Plus } from "lucide-react";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
@@ -7,7 +7,7 @@ import { AddExpenseModal } from "@/components/sales/expenses/AddExpenseModal";
 import { toast } from "sonner";
 import { SalesUsers, Leads, Targets, Payments } from "@/lib/sales-api";
 
-export const Route = createFileRoute("/sales/accounting")({
+export const Route = defineRoute("/sales/accounting")({
   component: AccountingPage,
 });
 

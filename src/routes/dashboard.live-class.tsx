@@ -1,11 +1,11 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { StudentShell } from "@/components/course/StudentShell";
 import { supabase } from "@/integrations/supabase/client";
 import { Radio, Calendar, Clock, ExternalLink } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/live-class")({
+export const Route = defineRoute("/dashboard/live-class")({
   component: LiveClassPage,
   head: () => ({ meta: [{ title: "লাইভ ক্লাস — Learniby" }] }),
 });

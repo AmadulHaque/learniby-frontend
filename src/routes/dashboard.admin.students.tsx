@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminListStudents, adminSetStudentStatus, adminDeleteStudent, adminResetPassword, adminCreateStudent } from "@/rpc/admin";
@@ -15,7 +15,7 @@ import {
   Search, XCircle, Trash2, Settings2, Mail, Phone, Building2, MapPin, Loader2, KeyRound, UserPlus, IdCard, Users,
 } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/admin/students")({
+export const Route = defineRoute("/dashboard/admin/students")({
   component: StudentsPage,
 });
 

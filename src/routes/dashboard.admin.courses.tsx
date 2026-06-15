@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Search, BookOpen, Upload, Loader2, X } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/admin/courses")({
+export const Route = defineRoute("/dashboard/admin/courses")({
   component: CoursesPage,
 });
 

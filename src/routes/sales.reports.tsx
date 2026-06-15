@@ -1,9 +1,9 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { defineRoute, useNavigate } from "@/lib/router-compat";
 import { useEffect } from "react";
 import ReportsPage from "@/components/sales/reports/ReportsPage";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 
-export const Route = createFileRoute("/sales/reports")({
+export const Route = defineRoute("/sales/reports")({
   component: ReportsRoute,
 });
 

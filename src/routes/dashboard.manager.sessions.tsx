@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { SessionsManager } from "@/components/course/SessionsManager";
 
-export const Route = createFileRoute("/dashboard/manager/sessions")({
+export const Route = defineRoute("/dashboard/manager/sessions")({
   component: () => <SessionsManager mode="manage" title="লাইভ ক্লাস লিংক" />,
 });

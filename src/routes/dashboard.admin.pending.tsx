@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminListStudents, adminSetStudentStatus, adminDeleteStudent } from "@/rpc/admin";
@@ -11,7 +11,7 @@ import {
   Search, CheckCircle2, XCircle, Trash2, Mail, Phone, Building2, MapPin, Loader2, UserPlus, Inbox, ShieldAlert, Network, IdCard, Users, Briefcase,
 } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/admin/pending")({
+export const Route = defineRoute("/dashboard/admin/pending")({
   component: PendingPage,
 });
 

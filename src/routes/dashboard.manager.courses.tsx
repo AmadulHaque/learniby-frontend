@@ -1,8 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { Card } from "@/components/ui/card";
 import { BookOpen, ExternalLink } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/manager/courses")({
+export const Route = defineRoute("/dashboard/manager/courses")({
   component: ManagerCourses,
 });
 

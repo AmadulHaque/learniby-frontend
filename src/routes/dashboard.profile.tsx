@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { StudentShell } from "@/components/course/StudentShell";
 import { Card } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, Clock, ShieldAlert, XCircle, Pencil, X } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/profile")({
+export const Route = defineRoute("/dashboard/profile")({
   component: ProfilePage,
   head: () => ({ meta: [{ title: "প্রোফাইল — Learniby" }] }),
 });

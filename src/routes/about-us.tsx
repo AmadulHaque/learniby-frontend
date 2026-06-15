@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { Rocket, Telescope, Lightbulb, Shield, Heart, Star } from "lucide-react";
 import { TopBar, SiteHeader, SiteFooter, BRAND } from "@/components/marketing/site-chrome";
 import storyImg from "@/assets/marketing/about-story.jpg";
@@ -6,7 +6,7 @@ import t1 from "@/assets/marketing/team1.jpg";
 import t2 from "@/assets/marketing/team2.jpg";
 import t3 from "@/assets/marketing/team3.jpg";
 
-export const Route = createFileRoute("/about-us")({
+export const Route = defineRoute("/about-us")({
   head: () => ({
     meta: [
       { title: "About Us — Learniby" },

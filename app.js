@@ -1,9 +1,7 @@
-import { serve } from 'srvx/node';
-import server from './dist/server/server.js';
-import path from 'node:path';
+import { serve } from "srvx/node";
+import path from "node:path";
 
 serve({
-  fetch: server.fetch,
-  static: path.resolve('dist/client'),
+  static: path.resolve("dist"),
   port: process.env.PORT || 3000,
 });

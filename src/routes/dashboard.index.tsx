@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,7 +6,7 @@ import { StudentShell } from "@/components/course/StudentShell";
 import { Card } from "@/components/ui/card";
 import { Calendar, BookOpenText, Clock, ShieldAlert, MessageCircle } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/")({
+export const Route = defineRoute("/dashboard/")({
   component: DashboardPage,
   head: () => ({
     meta: [

@@ -1,10 +1,10 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { StudentShell } from "@/components/course/StudentShell";
 import { Zap, CheckCircle2, Clock, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-export const Route = createFileRoute("/dashboard/billing")({
+export const Route = defineRoute("/dashboard/billing")({
   component: BillingPage,
   head: () => ({ meta: [{ title: "বিলিং ও রিপোর্ট — Learniby" }] }),
 });

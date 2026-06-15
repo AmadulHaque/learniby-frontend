@@ -1,11 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Users, Building2, Radio, BookOpen } from "lucide-react";
 import { Batches, ClassSessions } from "@/lib/teacher-api";
 
-export const Route = createFileRoute("/dashboard/manager/")({
+export const Route = defineRoute("/dashboard/manager/")({
   component: ManagerHome,
 });
 

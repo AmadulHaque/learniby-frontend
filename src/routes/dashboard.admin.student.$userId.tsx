@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { defineRoute, Link, useNavigate } from "@/lib/router-compat";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminGetStudentAccess, adminSetVideoAccess } from "@/rpc/admin";
@@ -13,7 +13,7 @@ import {
   ChevronLeft, Loader2, Save, BookOpen, ChevronDown, ChevronUp, CheckCheck, Square, Search, PlayCircle,
 } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/admin/student/$userId")({
+export const Route = defineRoute("/dashboard/admin/student/$userId")({
   component: StudentAccessPage,
 });
 

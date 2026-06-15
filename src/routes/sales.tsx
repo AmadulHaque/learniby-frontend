@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { defineRoute, Outlet, useNavigate, useRouterState } from "@/lib/router-compat";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { SalesSidebar } from "@/components/sales/SalesSidebar";
@@ -13,7 +13,7 @@ import { SalesPrioritiesProvider } from "@/contexts/SalesPrioritiesContext";
 import { SalesPaymentMethodsProvider } from "@/contexts/SalesPaymentMethodsContext";
 import { SalesExpenseCategoriesProvider } from "@/contexts/SalesExpenseCategoriesContext";
 
-export const Route = createFileRoute("/sales")({
+export const Route = defineRoute("/sales")({
   head: () => ({
     meta: [
       { title: "Learniby LMS — Sales Panel" },

@@ -1,10 +1,10 @@
 import { useEffect } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { defineRoute, useNavigate } from "@/lib/router-compat";
 import { CoursesTab } from "@/components/sales/settings/SettingsPage";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 import { BookOpen } from "lucide-react";
 
-export const Route = createFileRoute("/sales/courses")({
+export const Route = defineRoute("/sales/courses")({
   component: CoursesPage,
 });
 

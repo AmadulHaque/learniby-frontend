@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link } from "@/lib/router-compat";
 import { Phone, Facebook, Instagram, Youtube, MapPin, Mail } from "lucide-react";
 import logo from "@/assets/marketing/learniby-logo.webp";
 

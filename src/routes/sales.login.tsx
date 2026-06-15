@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
+import { defineRoute, useNavigate, useRouterState } from "@/lib/router-compat";
 import { motion, useAnimationControls } from "framer-motion";
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Sparkles, Check } from "lucide-react";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
 
-export const Route = createFileRoute("/sales/login")({
+export const Route = defineRoute("/sales/login")({
   head: () => ({
     meta: [
       { title: "Login — Learniby LMS" },

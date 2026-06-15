@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { defineRoute } from "@/lib/router-compat";
 import { SiteHeader, SiteFooter, TopBar } from "@/components/marketing/site-chrome";
 import { CourseCard } from "@/components/marketing/CourseCard";
 import { MARKETING_COURSES } from "@/components/marketing/courses-data";
 
 const SITE_URL = "https://course.learniby.com";
 
-export const Route = createFileRoute("/all-courses")({
+export const Route = defineRoute("/all-courses")({
   head: () => ({
     meta: [
       { title: "All Courses — Learniby" },

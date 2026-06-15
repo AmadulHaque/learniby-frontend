@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { defineRoute, Link } from "@/lib/router-compat";
 import {
   Star,
   GraduationCap,
@@ -28,7 +28,7 @@ import successImg from "@/assets/marketing/success.webp";
 
 const SITE_URL = "https://course.learniby.com";
 
-export const Route = createFileRoute("/")({
+export const Route = defineRoute("/")({
   head: () => ({
     meta: [
       { title: "Learniby — বাংলাদেশের প্রিমিয়াম অনলাইন লার্নিং প্ল্যাটফর্ম" },

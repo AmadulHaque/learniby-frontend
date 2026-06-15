@@ -1,9 +1,9 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { defineRoute, Navigate } from "@/lib/router-compat";
 import { useAuth } from "@/contexts/AuthContext";
 import { StudentShell } from "@/components/course/StudentShell";
 import { FileText } from "lucide-react";
 
-export const Route = createFileRoute("/dashboard/certificate")({
+export const Route = defineRoute("/dashboard/certificate")({
   component: CertificatePage,
   head: () => ({ meta: [{ title: "সার্টিফিকেট — Learniby" }] }),
 });
