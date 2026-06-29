@@ -1824,7 +1824,7 @@ function RolePermissionsTab({ onSaved }: { onSaved?: () => void }) {
     setLoading(true);
     try {
       const res = await RolePermissions.list();
-      const list = (res.data ?? []) as unknown as { id: string; role: "admin" | "executive"; permissions: string[]; updated_at: string }[];
+      const list = (res.data ?? []) as unknown as { role: "admin" | "manager" | "executive"; permissions: string[]; updated_at: string }[];
       setRows(list);
       const d: Record<string, Set<string>> = {};
       for (const r of list) d[r.role] = new Set(r.permissions ?? []);
@@ -1852,14 +1852,14 @@ function RolePermissionsTab({ onSaved }: { onSaved?: () => void }) {
     setDraft((prev) => ({ ...prev, [role]: new Set(on ? allKeys : []) }));
   };
 
-  const save = async (role: "admin" | "executive") => {
+  const save = async (role: "admin" | "manager" | "executive") => {
     const target = rows.find((r) => r.role === role);
     if (!target) { toast.error("Role row not found"); return; }
     setSavingRole(role);
     const perms = Array.from(draft[role] ?? new Set<string>());
     try {
-      await RolePermissions.update(target.id, perms);
-      toast.success(`${role === "admin" ? "Admin" : "Sales Executive"} role permissions saved`);
+      await RolePermissions.update(target.role, perms);
+      toast.success(`${role === "admin" ? "Admin" : role === "manager" ? "Manager" : "Sales Executive"} role permissions saved`);
       await load();
       await refresh();
       onSaved?.();

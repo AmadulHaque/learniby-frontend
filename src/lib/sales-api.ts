@@ -169,7 +169,7 @@ export interface SalesUserRow {
 }
 
 export interface SalesRolePermissionRow {
-  id: string;
+  id?: string;
   role: SalesRole;
   permissions: string[];
   updated_by: string | null;
@@ -569,12 +569,12 @@ export const SalesUsers = {
 
 export const RolePermissions = {
   list: () => apiGet<Envelope<SalesRolePermissionRow[]>>("/sales/role-permissions"),
-  show: (id: string) => apiGet<Envelope<SalesRolePermissionRow>>(`/sales/role-permissions/${id}`),
+  show: (role: SalesRole) => apiGet<Envelope<SalesRolePermissionRow>>(`/sales/role-permissions/${role}`),
   create: (role: SalesRole, permissions: string[]) =>
     apiPost<Envelope<SalesRolePermissionRow>>("/sales/role-permissions", { role, permissions }),
-  update: (id: string, permissions: string[]) =>
-    apiPatch<Envelope<SalesRolePermissionRow>>(`/sales/role-permissions/${id}`, { permissions }),
-  remove: (id: string) => apiDelete<void>(`/sales/role-permissions/${id}`),
+  update: (role: SalesRole, permissions: string[]) =>
+    apiPatch<Envelope<SalesRolePermissionRow>>(`/sales/role-permissions/${role}`, { permissions }),
+  remove: (role: SalesRole) => apiDelete<void>(`/sales/role-permissions/${role}`),
 };
 
 // =======================
