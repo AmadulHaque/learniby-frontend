@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -147,6 +147,10 @@ export function FilterDrawer({
   // Reset draft when drawer opens
   const drawerKey = open ? "open" : "closed";
 
+  useEffect(() => {
+    if (open) setDraft(filters);
+  }, [open, filters]);
+
   const toggleArr = <T extends string>(key: keyof LeadFilters, value: T) => {
     setDraft((d) => {
       const arr = d[key] as T[];
@@ -210,28 +214,7 @@ export function FilterDrawer({
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <Section title="Status" count={draft.statuses.length}>
-                {statusOptions.map((row) => (
-                  <label
-                    key={row.key}
-                    className="flex cursor-pointer items-center gap-3 rounded-md py-1.5"
-                  >
-                    <Checkbox
-                      checked={draft.statuses.includes(row.key)}
-                      onCheckedChange={() => toggleArr("statuses", row.key)}
-                    />
-                    <span
-                      className={cn(
-                        "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                        row.bg,
-                        row.text,
-                      )}
-                    >
-                      {row.label}
-                    </span>
-                  </label>
-                ))}
-              </Section>
+            
 
               <Section title="Course Interest" count={draft.courses.length}>
                 {courseList.map((co) => {

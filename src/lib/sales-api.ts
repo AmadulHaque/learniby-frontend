@@ -272,21 +272,30 @@ export interface SalesNotificationPref {
 // Filter / payload types
 // =======================
 export interface LeadListFilters {
-  status?: LeadStatus;
-  priority?: LeadPriority;
-  source?: LeadSource | string;
+  status?: LeadStatus | LeadStatus[];
+  priority?: LeadPriority | LeadPriority[];
+  source?: LeadSource | string | Array<LeadSource | string>;
+  courses?: string[];
   assigned_to?: string;
   city?: string;
   state?: string;
   search?: string;
   from?: string;
   to?: string;
+  follow_up_from?: string;
+  follow_up_to?: string;
+  follow_up_bucket?: "all" | "today" | "upcoming" | "overdue" | "none";
   won_from?: string;
   won_to?: string;
-  sort?: "created_at" | "updated_at" | "follow_up_date" | "last_activity_at" | "lead_score" | "deal_value";
+  sort?: "created_at" | "updated_at" | "follow_up_date" | "last_activity_at" | "lead_score" | "deal_value" | "full_name" | "status";
   direction?: "asc" | "desc";
   per_page?: number;
   page?: number;
+}
+
+export interface LeadStatusCounts {
+  total: number;
+  statuses: Record<string, number>;
 }
 
 export interface LeadWritePayload {
@@ -460,6 +469,8 @@ export const SystemSettings = {
 // =======================
 export const Leads = {
   list: (filters: LeadListFilters = {}) => apiGet<Paginated<Lead>>("/sales/leads", filters as Query),
+  statusCounts: (filters: LeadListFilters = {}) =>
+    apiGet<Envelope<LeadStatusCounts>>("/sales/leads/status-counts", filters as Query),
   show: (id: string) => apiGet<Lead>(`/sales/leads/${id}`),
   create: (body: LeadWritePayload) => apiPost<Lead>("/sales/leads", body),
   update: (id: string, body: LeadWritePayload) => apiPatch<Lead>(`/sales/leads/${id}`, body),

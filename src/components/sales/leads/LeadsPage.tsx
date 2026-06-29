@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useSalesAuth } from "@/contexts/SalesAuthContext";
-import { Leads, SalesUsers } from "@/lib/sales-api";
+import { Leads, SalesUsers, type LeadListFilters } from "@/lib/sales-api";
 import {
   STATUS_META,
   getStatusMeta,
@@ -71,10 +71,94 @@ import {
 } from "./FilterDrawer";
 
 const PAGE_SIZE = 25;
+const LEAD_LIST_STORAGE_KEY = "learniby.sales.leads.view.v1";
 
 type SortKey = "full_name" | "status" | "follow_up_date" | "last_activity_at" | "lead_score";
+type SortDir = "asc" | "desc";
+type FollowUpBucket = "all" | "today" | "upcoming" | "overdue" | "none";
+type ViewMode = "table" | "kanban";
+
+interface StoredLeadListView {
+  search: string;
+  filters: LeadFilters;
+  page: number;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  followUpBucket: FollowUpBucket;
+  viewMode: ViewMode;
+}
+
+const DEFAULT_LEAD_LIST_VIEW: StoredLeadListView = {
+  search: "",
+  filters: EMPTY_FILTERS,
+  page: 1,
+  sortKey: "last_activity_at",
+  sortDir: "desc",
+  followUpBucket: "all",
+  viewMode: "table",
+};
+
+function readStoredLeadListView(): StoredLeadListView {
+  if (typeof window === "undefined") return DEFAULT_LEAD_LIST_VIEW;
+
+  try {
+    const raw = window.localStorage.getItem(LEAD_LIST_STORAGE_KEY);
+    if (!raw) return DEFAULT_LEAD_LIST_VIEW;
+
+    const parsed = JSON.parse(raw) as Partial<StoredLeadListView>;
+    return normalizeStoredLeadListView(parsed);
+  } catch {
+    return DEFAULT_LEAD_LIST_VIEW;
+  }
+}
+
+function normalizeStoredLeadListView(value: Partial<StoredLeadListView>): StoredLeadListView {
+  const filters = value.filters && typeof value.filters === "object" ? value.filters : EMPTY_FILTERS;
+
+  return {
+    search: typeof value.search === "string" ? value.search : DEFAULT_LEAD_LIST_VIEW.search,
+    filters: {
+      statuses: stringArray(filters.statuses),
+      courses: stringArray(filters.courses),
+      sources: stringArray(filters.sources),
+      priorities: stringArray(filters.priorities),
+      assignedTo: typeof filters.assignedTo === "string" ? filters.assignedTo : EMPTY_FILTERS.assignedTo,
+      dateMode: filters.dateMode === "followup" ? "followup" : "added",
+      dateFrom: typeof filters.dateFrom === "string" ? filters.dateFrom : "",
+      dateTo: typeof filters.dateTo === "string" ? filters.dateTo : "",
+    },
+    page: typeof value.page === "number" && Number.isFinite(value.page) && value.page > 0
+      ? Math.floor(value.page)
+      : DEFAULT_LEAD_LIST_VIEW.page,
+    sortKey: isSortKey(value.sortKey) ? value.sortKey : DEFAULT_LEAD_LIST_VIEW.sortKey,
+    sortDir: value.sortDir === "asc" || value.sortDir === "desc" ? value.sortDir : DEFAULT_LEAD_LIST_VIEW.sortDir,
+    followUpBucket: isFollowUpBucket(value.followUpBucket)
+      ? value.followUpBucket
+      : DEFAULT_LEAD_LIST_VIEW.followUpBucket,
+    viewMode: value.viewMode === "kanban" ? "kanban" : "table",
+  };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function isSortKey(value: unknown): value is SortKey {
+  return (
+    value === "full_name" ||
+    value === "status" ||
+    value === "follow_up_date" ||
+    value === "last_activity_at" ||
+    value === "lead_score"
+  );
+}
+
+function isFollowUpBucket(value: unknown): value is FollowUpBucket {
+  return value === "all" || value === "today" || value === "upcoming" || value === "overdue" || value === "none";
+}
 
 export function LeadsPage() {
+  const initialViewState = useMemo(readStoredLeadListView, []);
   const { salesUser } = useSalesAuth();
   const { statuses } = useSalesStatuses();
   const { active: activeCourses, fieldsFor } = useSalesCourses();
@@ -89,45 +173,82 @@ export function LeadsPage() {
   const canExport = hasPermission(salesUser, "export.data");
 
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalLeads, setTotalLeads] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [statusCountTotal, setStatusCountTotal] = useState(0);
+  const [pagination, setPagination] = useState({ from: 0, to: 0, lastPage: 1 });
   const [reps, setReps] = useState<{ id: string; full_name: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<LeadFilters>(EMPTY_FILTERS);
+  const [search, setSearch] = useState(initialViewState.search);
+  const [filters, setFilters] = useState<LeadFilters>(initialViewState.filters);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(1);
-  const [sortKey, setSortKey] = useState<SortKey>("last_activity_at");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(initialViewState.page);
+  const [sortKey, setSortKey] = useState<SortKey>(initialViewState.sortKey);
+  const [sortDir, setSortDir] = useState<SortDir>(initialViewState.sortDir);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
-  const [followUpBucket, setFollowUpBucket] = useState<"all" | "today" | "upcoming" | "overdue" | "none">("all");
-  const [viewMode, setViewMode] = useState<"table" | "kanban">("table");
+  const [followUpBucket, setFollowUpBucket] = useState<FollowUpBucket>(initialViewState.followUpBucket);
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewState.viewMode);
   const [bulkMode, setBulkMode] = useState<BulkMode>(null);
 
-  // Initial load
+  useEffect(() => {
+    void loadReps();
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        LEAD_LIST_STORAGE_KEY,
+        JSON.stringify({
+          search,
+          filters,
+          page,
+          sortKey,
+          sortDir,
+          followUpBucket,
+          viewMode,
+        } satisfies StoredLeadListView),
+      );
+    } catch {
+      /* Local storage can be unavailable in private or restricted browser contexts. */
+    }
+  }, [search, filters, page, sortKey, sortDir, followUpBucket, viewMode]);
+
   useEffect(() => {
     void loadLeads();
-    void loadReps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page, search, filters, sortKey, sortDir, followUpBucket]);
 
   const loadLeads = async () => {
     setLoading(true);
     try {
-      const all: Lead[] = [];
-      const PER = 500;
-      let page = 1;
-      while (all.length < 5000) {
-        const res = await Leads.list({ sort: "created_at", direction: "desc", per_page: PER, page });
-        const chunk = (res.data ?? []) as unknown as Lead[];
-        if (chunk.length === 0) break;
-        all.push(...chunk);
-        if (chunk.length < PER) break;
-        page++;
-      }
-      setLeads(all);
+      const baseFilters = buildLeadQuery(filters, search, sortKey === "follow_up_date" ? followUpBucket : "all");
+      const [res, countRes] = await Promise.all([
+        Leads.list({
+          ...baseFilters,
+          status: filters.statuses,
+          sort: sortKey,
+          direction: sortDir,
+          per_page: PAGE_SIZE,
+          page,
+        }),
+        Leads.statusCounts(baseFilters),
+      ]);
+      const rows = (res.data ?? []) as unknown as Lead[];
+      const meta = res.meta;
+      setLeads(rows);
+      setTotalLeads(meta?.total ?? rows.length);
+      setStatusCounts(countRes.data.statuses ?? {});
+      setStatusCountTotal(countRes.data.total ?? 0);
+      setPagination({
+        from: meta?.from ?? (rows.length ? 1 : 0),
+        to: meta?.to ?? rows.length,
+        lastPage: meta?.last_page ?? 1,
+      });
+      setSelected(new Set());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load leads");
     } finally {
@@ -145,80 +266,16 @@ export function LeadsPage() {
     }
   };
 
-  // Filter + search + sort
-  const filtered = useMemo(() => {
-    let list = [...leads];
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (l) =>
-          l.full_name.toLowerCase().includes(q) ||
-          l.phone.includes(search.trim()),
-      );
-    }
-    if (filters.statuses.length)
-      list = list.filter((l) => filters.statuses.includes(l.status));
-    if (filters.sources.length)
-      list = list.filter((l) => filters.sources.includes(l.source));
-    if (filters.priorities.length)
-      list = list.filter((l) => filters.priorities.includes(l.priority));
-    if (filters.courses.length)
-      list = list.filter((l) =>
-        l.courses.some((c) => filters.courses.includes(c)),
-      );
-    if (filters.assignedTo === "unassigned")
-      list = list.filter((l) => !l.assigned_to);
-    else if (filters.assignedTo !== "all")
-      list = list.filter((l) => l.assigned_to === filters.assignedTo);
-    if (filters.dateFrom || filters.dateTo) {
-      const key = filters.dateMode === "added" ? "created_at" : "follow_up_date";
-      list = list.filter((l) => {
-        const v = l[key];
-        if (!v) return false;
-        const t = new Date(v).getTime();
-        if (filters.dateFrom && t < new Date(filters.dateFrom).getTime())
-          return false;
-        if (filters.dateTo && t > new Date(filters.dateTo).getTime() + 86400000)
-          return false;
-        return true;
-      });
-    }
-
-    // Follow-up bucket sub-filter (only meaningful when sorting by follow-up)
-    if (sortKey === "follow_up_date" && followUpBucket !== "all") {
-      const now = Date.now();
-      const startToday = new Date();
-      startToday.setHours(0, 0, 0, 0);
-      const endToday = startToday.getTime() + 86400000;
-      list = list.filter((l) => {
-        if (!l.follow_up_date) return followUpBucket === "none";
-        if (followUpBucket === "none") return false;
-        const t = new Date(l.follow_up_date).getTime();
-        if (followUpBucket === "today") return t >= startToday.getTime() && t < endToday;
-        if (followUpBucket === "overdue") return t < now;
-        if (followUpBucket === "upcoming") return t >= now;
-        return true;
-      });
-    }
-
-    list.sort((a, b) => {
-      const av = a[sortKey] ?? "";
-      const bv = b[sortKey] ?? "";
-      if (av === bv) return 0;
-      const cmp = av > bv ? 1 : -1;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return list;
-  }, [leads, search, filters, sortKey, sortDir, followUpBucket]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filtered = leads;
+  const totalPages = pagination.lastPage;
+  const pageRows = leads;
 
   useEffect(() => {
     if (page > totalPages) setPage(1);
   }, [page, totalPages]);
 
   const toggleSort = (k: SortKey) => {
+    setPage(1);
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(k);
@@ -241,6 +298,7 @@ export function LeadsPage() {
   };
 
   const removeFilterChip = (key: keyof LeadFilters, value?: string) => {
+    setPage(1);
     setFilters((f) => {
       if (Array.isArray(f[key]) && value) {
         return { ...f, [key]: (f[key] as string[]).filter((v) => v !== value) };
@@ -360,7 +418,7 @@ export function LeadsPage() {
             <div>
               <h1 className="text-2xl font-extrabold text-slate-900">All Leads</h1>
               <p className="text-xs text-slate-500">
-                <span className="font-semibold text-blue-700">{filtered.length}</span> total
+                <span className="font-semibold text-blue-700">{totalLeads}</span> total
                 {countActiveFilters(filters) > 0 && ` · ${countActiveFilters(filters)} filter${countActiveFilters(filters) > 1 ? "s" : ""} active`}
               </p>
             </div>
@@ -370,7 +428,10 @@ export function LeadsPage() {
               <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 placeholder="Search name or phone…"
                 className="w-full sm:w-[280px] pl-9 bg-white/80 backdrop-blur border-blue-100 focus-visible:ring-blue-500/30"
               />
@@ -448,7 +509,7 @@ export function LeadsPage() {
       {/* View toggle + status pill row */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs text-muted-foreground">
-          Showing <span className="font-bold text-foreground">{filtered.length}</span> of {leads.length} leads
+          Showing <span className="font-bold text-foreground">{pagination.from || 0}-{pagination.to || 0}</span> of {totalLeads} leads
         </div>
         <div className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-sm">
           <button
@@ -474,7 +535,8 @@ export function LeadsPage() {
 
       {/* Status filter pill bar */}
       <StatusPillBar
-        leads={leads}
+        total={statusCountTotal}
+        counts={statusCounts}
         statuses={statuses}
         activeStatuses={filters.statuses}
         onSelect={(key) => {
@@ -629,6 +691,7 @@ export function LeadsPage() {
             hasFilters={countActiveFilters(filters) > 0 || !!search.trim()}
             onAdd={() => setAddOpen(true)}
             onClearFilters={() => {
+              setPage(1);
               setFilters(EMPTY_FILTERS);
               setSearch("");
             }}
@@ -680,6 +743,7 @@ export function LeadsPage() {
                       hasFilters={countActiveFilters(filters) > 0 || !!search.trim()}
                       onAdd={() => setAddOpen(true)}
                       onClearFilters={() => {
+                        setPage(1);
                         setFilters(EMPTY_FILTERS);
                         setSearch("");
                       }}
@@ -719,7 +783,7 @@ export function LeadsPage() {
       )}
 
       {/* Pagination */}
-      {viewMode === "table" && filtered.length > PAGE_SIZE && (
+      {viewMode === "table" && totalPages > 1 && (
         <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
@@ -729,8 +793,7 @@ export function LeadsPage() {
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          {Array.from({ length: totalPages }).slice(0, 7).map((_, i) => {
-            const p = i + 1;
+          {paginationPages(page, totalPages).map((p) => {
             return (
               <Button
                 key={p}
@@ -768,7 +831,10 @@ export function LeadsPage() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         filters={filters}
-        onChange={setFilters}
+        onChange={(next) => {
+          setPage(1);
+          setFilters(next);
+        }}
         isAdmin={isAdmin}
         reps={reps}
       />
@@ -780,7 +846,7 @@ export function LeadsPage() {
         currentUserId={salesUser?.id ?? ""}
         reps={reps}
         onCreated={(lead) => {
-          setLeads((all) => [lead, ...all]);
+          void loadLeads();
           setJustAddedId(lead.id);
           setTimeout(() => setJustAddedId(null), 2500);
         }}
@@ -836,6 +902,34 @@ function Th({
       {children}
     </th>
   );
+}
+
+function paginationPages(current: number, total: number): number[] {
+  const count = Math.min(7, total);
+  let start = Math.max(1, current - Math.floor(count / 2));
+  const end = Math.min(total, start + count - 1);
+  start = Math.max(1, end - count + 1);
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+function buildLeadQuery(
+  filters: LeadFilters,
+  search: string,
+  followUpBucket: "all" | "today" | "upcoming" | "overdue" | "none",
+): LeadListFilters {
+  return {
+    source: filters.sources,
+    priority: filters.priorities,
+    courses: filters.courses,
+    assigned_to: filters.assignedTo === "all" ? undefined : filters.assignedTo,
+    search: search.trim() || undefined,
+    from: filters.dateMode === "added" ? filters.dateFrom || undefined : undefined,
+    to: filters.dateMode === "added" ? filters.dateTo || undefined : undefined,
+    follow_up_from: filters.dateMode === "followup" ? filters.dateFrom || undefined : undefined,
+    follow_up_to: filters.dateMode === "followup" ? filters.dateTo || undefined : undefined,
+    follow_up_bucket: followUpBucket === "all" ? undefined : followUpBucket,
+  };
 }
 
 function LeadRow({
@@ -1242,28 +1336,25 @@ function CourseChips({ courseKeys }: { courseKeys: string[] }) {
 
 /* ============ STATUS PILL BAR ============ */
 function StatusPillBar({
-  leads,
+  total,
+  counts,
   statuses,
   activeStatuses,
   onSelect,
 }: {
-  leads: Lead[];
+  total: number;
+  counts: Record<string, number>;
   statuses: ReturnType<typeof useSalesStatuses>["statuses"];
   activeStatuses: string[];
   onSelect: (key: string | null) => void;
 }) {
-  const counts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const l of leads) m[l.status] = (m[l.status] ?? 0) + 1;
-    return m;
-  }, [leads]);
   const allActive = activeStatuses.length === 0;
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-4 rounded-2xl border border-border bg-card px-3 pb-3 pt-5 shadow-sm">
       <PillWithBadge
         label="All"
-        count={leads.length}
+        count={total}
         active={allActive}
         onClick={() => onSelect(null)}
         activeClass="bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30"

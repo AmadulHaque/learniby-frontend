@@ -84,7 +84,7 @@ export class ApiError extends Error {
 export interface ApiRequest {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
-  query?: Record<string, string | number | boolean | null | undefined>;
+  query?: Record<string, string | number | boolean | readonly (string | number | boolean)[] | null | undefined>;
   body?: unknown;
   formData?: FormData;
   audience?: Audience;
@@ -97,6 +97,14 @@ function buildUrl(path: string, query?: ApiRequest["query"]): string {
   if (query) {
     Object.entries(query).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
+      if (Array.isArray(v)) {
+        v.forEach((item) => {
+          if (item !== undefined && item !== null && item !== "") {
+            url.searchParams.append(`${k}[]`, String(item));
+          }
+        });
+        return;
+      }
       url.searchParams.set(k, String(v));
     });
   }
