@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, apiPost, ApiError, tokenStore } from "@/lib/api";
 
-export type SalesRole = "admin" | "executive";
+export type SalesRole = "admin" | "manager" | "executive";
 
 export interface SalesUser {
   id: string;

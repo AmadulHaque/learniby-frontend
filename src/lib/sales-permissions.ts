@@ -47,7 +47,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
 ];
 
 export interface PermissionUserShape {
-  role: "admin" | "executive";
+  role: "admin" | "manager" | "executive";
   permissions?: string[] | null;
   rolePermissions?: string[] | null;
 }

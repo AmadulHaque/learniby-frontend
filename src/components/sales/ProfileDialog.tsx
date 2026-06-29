@@ -200,7 +200,7 @@ export function ProfileDialog({
           <div className="mt-3 text-sm font-bold">{fullName || "—"}</div>
           <div className="text-xs text-muted-foreground">{salesUser.email}</div>
           <div className="mt-1 inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-            {salesUser.role === "admin" ? "Admin" : "Executive"}
+            {salesUser.role === "admin" ? "Admin" : salesUser.role === "manager" ? "Manager" : "Executive"}
           </div>
         </div>
 

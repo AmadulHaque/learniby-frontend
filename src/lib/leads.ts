@@ -223,6 +223,7 @@ export const STATUS_META: Record<string, StatusMeta> = {
   ready_for_class: { label: "Ready for Class", bg: "bg-violet-100",  text: "text-violet-700" },
   follow_up:       { label: "Follow-Up",       bg: "bg-indigo-100",  text: "text-indigo-700" },
   convert:         { label: "Convert",         bg: "bg-emerald-100", text: "text-emerald-700", is_won: true },
+  lost_pending:    { label: "Lost Pending",    bg: "bg-orange-100",  text: "text-orange-700" },
   lost:            { label: "Lost",            bg: "bg-rose-50",     text: "text-rose-500" },
 };
 

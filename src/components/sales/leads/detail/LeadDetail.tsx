@@ -126,10 +126,11 @@ export function LeadDetail({ leadId }: Props) {
   const { salesUser } = useSalesAuth();
   const navigate = useNavigate();
   const isAdmin = salesUser?.role === "admin";
+  const canApproveLost = salesUser?.role === "admin" || salesUser?.role === "manager";
   const { getMeta: priorityGetMeta } = useSalesPriorities();
   const { isWon: isWonStatus, statuses: salesStatuses, active: activeStatuses } = useSalesStatuses();
-  // Pipeline = active statuses minus the terminal "lost" bucket (lost shown as separate action).
-  const pipelineStatuses = activeStatuses.filter((s) => s.key !== "lost");
+  // Pipeline = active statuses minus terminal lost states (shown as separate actions).
+  const pipelineStatuses = activeStatuses.filter((s) => s.key !== "lost" && s.key !== "lost_pending");
   const { byKey: courseByKey } = useSalesCourses();
 
   const [lead, setLead] = useState<Lead | null>(null);
@@ -179,13 +180,12 @@ export function LeadDetail({ leadId }: Props) {
     const fromStatus = lead.status;
     const toStatus = pendingStatus;
     const fromLabel = getStatusMeta(fromStatus, salesStatuses).label;
-    const toLabel = getStatusMeta(toStatus, salesStatuses).label;
     const pLabel = platformLabel(platform);
     const movingToWon = pendingIsWon;
     const wasWon = fromStatus === "convert" || fromStatus === "won" || isWonStatus(fromStatus);
 
     const patch: LeadWritePayload = { status: toStatus };
-    if (toStatus === "lost") patch.lost_reason = note;
+    if (toStatus === "lost" || toStatus === "lost_pending") patch.lost_reason = note;
     if (toStatus === "follow_up" && followUpAt) {
       patch.follow_up_date = followUpAt;
     }
@@ -197,19 +197,23 @@ export function LeadDetail({ leadId }: Props) {
       patch.won_at = null;
     }
     const updated = await Leads.update(lead.id, patch);
+    const updatedLead = updated as unknown as Lead;
+    const finalStatus = updatedLead.status;
+    const finalLabel = getStatusMeta(finalStatus, salesStatuses).label;
 
     const amountLine =
       movingToWon && dealAmount != null
         ? `\nFinal Sale Amount: ৳${Number(dealAmount).toLocaleString("en-IN")}`
         : "";
-    const desc = `${fromLabel} → ${toLabel} · via ${pLabel}\n${note}${amountLine}`;
+    const desc = `${fromLabel} → ${finalLabel} · via ${pLabel}\n${note}${amountLine}`;
     await Activities.create(lead.id, {
       type: "status_changed",
-      title: `Status: ${fromLabel} → ${toLabel}`,
+      title: `Status: ${fromLabel} → ${finalLabel}`,
       description: desc,
       meta: {
         from: fromStatus,
-        to: toStatus,
+        to: finalStatus,
+        requested_to: toStatus,
         platform,
         ...(movingToWon ? { deal_value: dealAmount } : {}),
       },
@@ -217,13 +221,13 @@ export function LeadDetail({ leadId }: Props) {
 
     await Notes.create(
       lead.id,
-      `[${fromLabel} → ${toLabel} · ${pLabel}] ${note}${amountLine}`,
+      `[${fromLabel} → ${finalLabel} · ${pLabel}] ${note}${amountLine}`,
     );
 
-    setLead(updated as unknown as Lead);
+    setLead(updatedLead);
     void refreshActivities();
     void refreshNotes();
-    toast.success(`Moved to ${toLabel}`);
+    toast.success(`Moved to ${finalLabel}`);
   };
 
   const refreshNotes = async () => {
@@ -519,6 +523,7 @@ export function LeadDetail({ leadId }: Props) {
           lead={lead}
           reps={reps}
           isAdmin={isAdmin}
+          canApproveLost={canApproveLost}
           onUpdate={updateLead}
           onRequestStatus={requestStatusChange}
           pipeline={pipelineStatuses}
@@ -1278,6 +1283,7 @@ function RightPanel({
   lead,
   reps,
   isAdmin,
+  canApproveLost,
   onUpdate,
   onRequestStatus,
   pipeline,
@@ -1285,12 +1291,14 @@ function RightPanel({
   lead: Lead;
   reps: { id: string; full_name: string; role: string }[];
   isAdmin: boolean;
+  canApproveLost: boolean;
   onUpdate: (patch: Partial<Lead>) => void | Promise<void>;
   onRequestStatus: (next: LeadStatus) => void;
   pipeline: import("@/lib/leads").SalesStatus[];
 }) {
   const currentIdx = pipeline.findIndex((p) => p.key === lead.status);
   const isLost = lead.status === "lost";
+  const isLostPending = lead.status === "lost_pending";
 
   // Schedule follow-up state
   const initial = lead.follow_up_date ? new Date(lead.follow_up_date) : null;
@@ -1334,9 +1342,9 @@ function RightPanel({
         <p className="mb-3 text-xs font-bold uppercase text-muted-foreground">Lead Status</p>
         <ol className="space-y-3">
           {pipeline.map((row, i) => {
-            const past = !isLost && i < currentIdx;
-            const current = !isLost && i === currentIdx;
-            const future = isLost || i > currentIdx;
+            const past = !isLost && !isLostPending && i < currentIdx;
+            const current = !isLost && !isLostPending && i === currentIdx;
+            const future = isLost || isLostPending || i > currentIdx;
             const sm = getStatusMeta(row.key, pipeline);
             return (
               <li key={row.key}>
@@ -1371,7 +1379,7 @@ function RightPanel({
             );
           })}
         </ol>
-        {!isLost && (
+        {!isLost && !isLostPending && (
           <div className="mt-4 border-t border-border pt-3">
             <Button
               variant="outline"
@@ -1384,8 +1392,33 @@ function RightPanel({
             </Button>
           </div>
         )}
+        {isLostPending && (
+          <div className="mt-4 border-t border-border pt-3">
+            {canApproveLost ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-rose-300 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                onClick={() => onRequestStatus("lost")}
+              >
+                <X className="mr-1 h-3.5 w-3.5" />
+                Approve Lost
+              </Button>
+            ) : (
+              <div className="rounded-lg bg-orange-50 p-2 text-xs font-semibold text-orange-700">
+                Lost approval pending
+              </div>
+            )}
+          </div>
+        )}
         {isLost && lead.lost_reason && (
           <div className="mt-3 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">
+            <AlertCircle className="mr-1 inline h-3 w-3" />
+            {lead.lost_reason}
+          </div>
+        )}
+        {isLostPending && lead.lost_reason && (
+          <div className="mt-3 rounded-lg bg-orange-50 p-2 text-xs text-orange-700">
             <AlertCircle className="mr-1 inline h-3 w-3" />
             {lead.lost_reason}
           </div>

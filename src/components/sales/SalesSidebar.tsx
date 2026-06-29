@@ -43,7 +43,7 @@ export function SalesSidebar({
   onOpenProfile,
 }: {
   collapsed: boolean;
-  role?: "admin" | "executive";
+  role?: "admin" | "manager" | "executive";
   user?: { name: string; email: string; avatar_url?: string | null; designation?: string | null };
   onLogout?: () => void;
   onOpenProfile?: () => void;
@@ -180,7 +180,7 @@ export function SalesSidebar({
               <div className="flex-1 min-w-0">
                 <div className="truncate text-xs font-bold text-white">{user.name}</div>
                 <div className="truncate text-[11px] text-white/55">
-                  {user.designation || (role === "admin" ? "Sales Admin" : "Sales Executive")}
+                  {user.designation || (role === "admin" ? "Sales Admin" : role === "manager" ? "Sales Manager" : "Sales Executive")}
                 </div>
               </div>
             )}
