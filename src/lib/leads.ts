@@ -109,6 +109,7 @@ export interface Lead {
   student_class: string | null;
   batch_preference: BatchPreference | null;
   budget_range: BudgetRange | null;
+  is_active: boolean;
   status: LeadStatus;
   assigned_to: string | null;
   follow_up_type: FollowUpType | null;

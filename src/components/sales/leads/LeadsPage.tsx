@@ -15,6 +15,8 @@ import {
   MoreVertical,
   Phone,
   Plus,
+  Power,
+  PowerOff,
   Search as SearchIcon,
   SearchX,
   Sparkles,
@@ -93,6 +95,7 @@ export function LeadsPage() {
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_FILTERS);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
@@ -290,6 +293,41 @@ export function LeadsPage() {
     a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const moveLeadToStatus = async (leadId: string, nextStatus: string) => {
+    if (!canEdit) {
+      toast.error("You do not have permission to edit leads");
+      return;
+    }
+
+    const lead = leads.find((item) => item.id === leadId);
+    if (!lead || lead.status === nextStatus) return;
+
+    const prevStatus = lead.status;
+    const nextLabel = getStatusMeta(nextStatus, statuses).label;
+    setLeads((all) =>
+      all.map((item) =>
+        item.id === leadId
+          ? { ...item, status: nextStatus, status_changed_at: new Date().toISOString(), last_activity_at: new Date().toISOString() }
+          : item,
+      ),
+    );
+
+    try {
+      const updated = await Leads.update(leadId, { status: nextStatus });
+      setLeads((all) => all.map((item) => (item.id === leadId ? (updated as unknown as Lead) : item)));
+      toast.success(`Moved to ${nextLabel}`);
+    } catch (e) {
+      setLeads((all) =>
+        all.map((item) =>
+          item.id === leadId
+            ? { ...item, status: prevStatus, status_changed_at: lead.status_changed_at, last_activity_at: lead.last_activity_at }
+            : item,
+        ),
+      );
+      toast.error(e instanceof Error ? e.message : "Failed to move lead");
+    }
   };
 
   const activeChips: { key: keyof LeadFilters; value?: string; label: string }[] =
@@ -574,6 +612,8 @@ export function LeadsPage() {
           leads={filtered}
           statuses={statuses}
           repsById={Object.fromEntries(reps.map((r) => [r.id, r.full_name]))}
+          canEdit={canEdit}
+          onMoveLead={moveLeadToStatus}
         />
       )}
 
@@ -658,6 +698,12 @@ export function LeadsPage() {
                     canEdit={canEdit}
                     canDelete={canDelete}
                     canReassign={canReassign}
+                    onEdit={() => setEditingLead(l)}
+                    onUpdated={(patch) => {
+                      setLeads((all) =>
+                        all.map((item) => (item.id === l.id ? { ...item, ...patch } : item)),
+                      );
+                    }}
                     repName={
                       reps.find((r) => r.id === l.assigned_to)?.full_name ?? "—"
                     }
@@ -739,6 +785,18 @@ export function LeadsPage() {
           setTimeout(() => setJustAddedId(null), 2500);
         }}
       />
+      <AddLeadModal
+        open={editingLead !== null}
+        onClose={() => setEditingLead(null)}
+        lead={editingLead}
+        isAdmin={isAdmin}
+        currentUserId={salesUser?.id ?? ""}
+        reps={reps}
+        onUpdated={(lead) => {
+          setLeads((all) => all.map((item) => (item.id === lead.id ? lead : item)));
+          setEditingLead(null);
+        }}
+      />
       <ImportLeadsDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -789,6 +847,8 @@ function LeadRow({
   canEdit,
   canDelete,
   canReassign,
+  onEdit,
+  onUpdated,
   repName,
   flash,
 }: {
@@ -800,6 +860,8 @@ function LeadRow({
   canEdit: boolean;
   canDelete: boolean;
   canReassign: boolean;
+  onEdit: () => void;
+  onUpdated: (patch: Partial<Lead>) => void;
   repName: string;
   flash: boolean;
 }) {
@@ -810,6 +872,16 @@ function LeadRow({
   const sa = stageAge(lead.status_changed_at);
   const fu = followUpLabel(lead.follow_up_date);
   const navigate = useNavigate();
+  const toggleActive = async () => {
+    const next = !lead.is_active;
+    try {
+      const updated = await Leads.update(lead.id, { is_active: next });
+      onUpdated(updated as unknown as Lead);
+      toast.success(next ? "Lead activated" : "Lead marked inactive");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    }
+  };
 
   return (
     <motion.tr
@@ -846,6 +918,11 @@ function LeadRow({
             {av.initials}
           </div>
           <span className="font-bold text-foreground group-hover:text-blue-700 transition-colors">{lead.full_name}</span>
+          {isAdmin && !lead.is_active && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+              Inactive
+            </span>
+          )}
         </div>
       </td>
       <td className="px-3 py-3">
@@ -966,13 +1043,28 @@ function LeadRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {canEdit && (
-                <DropdownMenuItem onClick={() => toast.info("Edit coming soon")}>
+                <DropdownMenuItem onClick={onEdit}>
                   Edit
                 </DropdownMenuItem>
               )}
               {canReassign && (
                 <DropdownMenuItem onClick={() => toast.info("Reassign coming soon")}>
                   Reassign
+                </DropdownMenuItem>
+              )}
+              {isAdmin && (
+                <DropdownMenuItem onClick={toggleActive}>
+                  {lead.is_active ? (
+                    <>
+                      <PowerOff className="mr-2 h-3.5 w-3.5" />
+                      Mark inactive
+                    </>
+                  ) : (
+                    <>
+                      <Power className="mr-2 h-3.5 w-3.5" />
+                      Activate
+                    </>
+                  )}
                 </DropdownMenuItem>
               )}
               {canDelete && (
@@ -1324,11 +1416,17 @@ function KanbanView({
   leads,
   statuses,
   repsById,
+  canEdit,
+  onMoveLead,
 }: {
   leads: Lead[];
   statuses: ReturnType<typeof useSalesStatuses>["statuses"];
   repsById: Record<string, string>;
+  canEdit: boolean;
+  onMoveLead: (leadId: string, nextStatus: string) => void;
 }) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const activeStatuses = statuses.filter((s) => s.is_active);
   const grouped = useMemo(() => {
     const m: Record<string, Lead[]> = {};
@@ -1349,7 +1447,29 @@ function KanbanView({
           return (
             <div
               key={s.key}
-              className="flex w-[280px] flex-shrink-0 flex-col rounded-2xl border border-border bg-muted/30 p-2"
+              onDragOver={(e) => {
+                if (!canEdit) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDropTarget(s.key);
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  setDropTarget((current) => (current === s.key ? null : current));
+                }
+              }}
+              onDrop={(e) => {
+                if (!canEdit) return;
+                e.preventDefault();
+                const leadId = e.dataTransfer.getData("text/plain");
+                setDropTarget(null);
+                setDraggingId(null);
+                if (leadId) onMoveLead(leadId, s.key);
+              }}
+              className={cn(
+                "flex w-[280px] flex-shrink-0 flex-col rounded-2xl border bg-muted/30 p-2 transition",
+                dropTarget === s.key ? "border-blue-400 bg-blue-50/70 ring-2 ring-blue-200" : "border-border",
+              )}
             >
               <div className="sticky top-0 z-10 mb-2 flex items-center justify-between rounded-xl bg-card px-3 py-2 shadow-sm">
                 <div className="flex items-center gap-2">
@@ -1367,7 +1487,18 @@ function KanbanView({
                   </div>
                 )}
                 {items.map((l) => (
-                  <KanbanCard key={l.id} lead={l} repName={repsById[l.assigned_to ?? ""] ?? "Unassigned"} />
+                  <KanbanCard
+                    key={l.id}
+                    lead={l}
+                    repName={repsById[l.assigned_to ?? ""] ?? "Unassigned"}
+                    draggable={canEdit}
+                    dragging={draggingId === l.id}
+                    onDragStart={() => setDraggingId(l.id)}
+                    onDragEnd={() => {
+                      setDraggingId(null);
+                      setDropTarget(null);
+                    }}
+                  />
                 ))}
               </div>
             </div>
@@ -1378,7 +1509,21 @@ function KanbanView({
   );
 }
 
-function KanbanCard({ lead, repName }: { lead: Lead; repName: string }) {
+function KanbanCard({
+  lead,
+  repName,
+  draggable,
+  dragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  lead: Lead;
+  repName: string;
+  draggable: boolean;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
   const av = avatarFor(lead.full_name);
   const sa = stageAge(lead.status_changed_at);
   const fu = lead.follow_up_date ? followUpLabel(lead.follow_up_date) : null;
@@ -1386,7 +1531,19 @@ function KanbanCard({ lead, repName }: { lead: Lead; repName: string }) {
     <Link
       to="/sales/leads/$id"
       params={{ id: lead.id }}
-      className="block rounded-xl border border-border bg-card p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (!draggable) return;
+        e.dataTransfer.setData("text/plain", lead.id);
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      className={cn(
+        "block rounded-xl border border-border bg-card p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
+        draggable && "cursor-grab active:cursor-grabbing",
+        dragging && "opacity-50 ring-2 ring-blue-300",
+      )}
     >
       <div className="flex items-center gap-2">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-full text-xs font-extrabold text-white", av.color)}>
@@ -1440,4 +1597,3 @@ function KanbanCard({ lead, repName }: { lead: Lead; repName: string }) {
     </Link>
   );
 }
-

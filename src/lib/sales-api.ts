@@ -306,6 +306,7 @@ export interface LeadWritePayload {
   student_class?: string | null;
   batch_preference?: BatchPreference | null;
   budget_range?: BudgetRange | null;
+  is_active?: boolean;
   status?: LeadStatus | null;
   assigned_to?: string | null;
   follow_up_date?: string | null;

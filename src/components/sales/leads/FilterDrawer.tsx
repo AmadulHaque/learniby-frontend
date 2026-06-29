@@ -15,7 +15,9 @@ import {
 import { cn } from "@/lib/utils";
 import {
   STATUS_COLORS,
+  STATUS_META,
   getCourseMeta,
+  getStatusMeta,
   type LeadCourse,
   type LeadPriority,
   type LeadSource,
@@ -118,6 +120,29 @@ export function FilterDrawer({
   const { active: activeSources } = useSalesSources();
   const { active: activePriorities } = useSalesPriorities();
   const [draft, setDraft] = useState<LeadFilters>(filters);
+  const statusOptions = (
+    activeStatuses.length
+      ? activeStatuses.map((row) => {
+          const c = STATUS_COLORS[row.color] ?? STATUS_COLORS.blue;
+          return { key: row.key, label: row.label, bg: c.bg, text: c.text };
+        })
+      : Object.keys(STATUS_META).map((key) => {
+          const meta = getStatusMeta(key);
+          return { key, label: meta.label, bg: meta.bg, text: meta.text };
+        })
+  ).concat(
+    draft.statuses
+      .filter((key) => {
+        const options = activeStatuses.length
+          ? activeStatuses.map((row) => row.key)
+          : Object.keys(STATUS_META);
+        return !options.includes(key);
+      })
+      .map((key) => {
+        const meta = getStatusMeta(key, activeStatuses);
+        return { key, label: meta.label, bg: meta.bg, text: meta.text };
+      }),
+  );
 
   // Reset draft when drawer opens
   const drawerKey = open ? "open" : "closed";
@@ -186,29 +211,26 @@ export function FilterDrawer({
 
             <div className="flex-1 overflow-y-auto">
               <Section title="Status" count={draft.statuses.length}>
-                {activeStatuses.map((row) => {
-                  const c = STATUS_COLORS[row.color] ?? STATUS_COLORS.blue;
-                  return (
-                    <label
-                      key={row.key}
-                      className="flex cursor-pointer items-center gap-3 rounded-md py-1.5"
+                {statusOptions.map((row) => (
+                  <label
+                    key={row.key}
+                    className="flex cursor-pointer items-center gap-3 rounded-md py-1.5"
+                  >
+                    <Checkbox
+                      checked={draft.statuses.includes(row.key)}
+                      onCheckedChange={() => toggleArr("statuses", row.key)}
+                    />
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                        row.bg,
+                        row.text,
+                      )}
                     >
-                      <Checkbox
-                        checked={draft.statuses.includes(row.key)}
-                        onCheckedChange={() => toggleArr("statuses", row.key)}
-                      />
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                          c.bg,
-                          c.text,
-                        )}
-                      >
-                        {row.label}
-                      </span>
-                    </label>
-                  );
-                })}
+                      {row.label}
+                    </span>
+                  </label>
+                ))}
               </Section>
 
               <Section title="Course Interest" count={draft.courses.length}>

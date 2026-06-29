@@ -42,7 +42,9 @@ import { cn } from "@/lib/utils";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: (lead: Lead) => void;
+  onCreated?: (lead: Lead) => void;
+  onUpdated?: (lead: Lead) => void;
+  lead?: Lead | null;
   isAdmin: boolean;
   currentUserId: string;
   reps: { id: string; full_name: string }[];
@@ -52,10 +54,13 @@ export function AddLeadModal({
   open,
   onClose,
   onCreated,
+  onUpdated,
+  lead,
   isAdmin,
   currentUserId,
   reps,
 }: Props) {
+  const isEditing = Boolean(lead);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [secondaryPhone, setSecondaryPhone] = useState("");
@@ -86,13 +91,39 @@ export function AddLeadModal({
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (open) {
-      setAssignedTo("");
-      setSaved(false);
-      if (activeSources[0] && !activeSources.find((s) => s.key === source)) setSource(activeSources[0].key as LeadSource);
-      if (defaultPriority) setPriority(defaultPriority as LeadPriority);
+    if (!open) return;
+
+    setSaved(false);
+    setErrors({});
+
+    if (lead) {
+      setFullName(lead.full_name ?? "");
+      setPhone(lead.phone ?? "");
+      setSecondaryPhone(lead.secondary_phone ?? "");
+      setEmail(lead.email ?? "");
+      setWhatsapp(lead.whatsapp ?? "");
+      setCity(lead.city ?? "");
+      setState(lead.state ?? "");
+      setSource((lead.source || activeSources[0]?.key || "facebook") as LeadSource);
+      setCampaign(lead.campaign_name ?? "");
+      setCourses(lead.courses ?? []);
+      setCourseData(lead.course_data ?? {});
+      setPriority((lead.priority || defaultPriority || "high") as LeadPriority);
+      setChildAge(lead.child_age != null ? String(lead.child_age) : "");
+      setDistrict(lead.district ?? "");
+      setStudentClass(lead.student_class ?? "");
+      setBatch(lead.batch_preference ?? "");
+      setBudget(lead.budget_range ?? "");
+      setAssignedTo(lead.assigned_to ?? "");
+      setNote(lead.notes ?? "");
+      return;
     }
-  }, [open, currentUserId, activeSources, defaultPriority, source]);
+
+    reset();
+    setAssignedTo("");
+    if (activeSources[0]) setSource(activeSources[0].key as LeadSource);
+    if (defaultPriority) setPriority(defaultPriority as LeadPriority);
+  }, [open, lead?.id, currentUserId, activeSources, defaultPriority]);
 
   const reset = () => {
     setFullName("");
@@ -127,7 +158,7 @@ export function AddLeadModal({
 
     setSaving(true);
     try {
-      const data = await Leads.create({
+      const payload = {
         full_name: fullName.trim(),
         phone: phone.trim(),
         secondary_phone: secondaryPhone.trim() || null,
@@ -147,16 +178,24 @@ export function AddLeadModal({
         budget_range: budget || null,
         assigned_to: assignedTo || null,
         notes: note.trim() || null,
-      });
+      };
+
+      const data = lead
+        ? await Leads.update(lead.id, payload)
+        : await Leads.create(payload);
       setSaved(true);
-      toast.success("Lead added successfully");
+      toast.success(lead ? "Lead updated successfully" : "Lead added successfully");
       setTimeout(() => {
-        onCreated(data as unknown as Lead);
-        reset();
+        if (lead) {
+          onUpdated?.(data as unknown as Lead);
+        } else {
+          onCreated?.(data as unknown as Lead);
+          reset();
+        }
         onClose();
       }, 600);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to add lead");
+      toast.error(e instanceof Error ? e.message : lead ? "Failed to update lead" : "Failed to add lead");
     } finally {
       setSaving(false);
     }
@@ -187,7 +226,7 @@ export function AddLeadModal({
       <DialogContent className="sales-sheet max-h-[85vh] max-w-[600px] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-extrabold">
-            Add New Lead
+            {isEditing ? "Edit Lead" : "Add New Lead"}
           </DialogTitle>
         </DialogHeader>
 
@@ -523,7 +562,7 @@ export function AddLeadModal({
           {/* Section 6: Note */}
           <section className="space-y-4">
             <h4 className="text-sm font-bold text-muted-foreground">
-              INITIAL NOTE
+              {isEditing ? "NOTES" : "INITIAL NOTE"}
             </h4>
             <Textarea
               value={note}
@@ -547,7 +586,7 @@ export function AddLeadModal({
               ) : saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Save Lead →"
+                isEditing ? "Save Changes" : "Save Lead →"
               )}
             </Button>
           </div>

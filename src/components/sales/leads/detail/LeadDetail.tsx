@@ -23,6 +23,8 @@ import {
   FileText,
   Download,
   Image as ImageIcon,
+  Power,
+  PowerOff,
   RefreshCw,
   Smartphone,
   Sparkles,
@@ -84,6 +86,8 @@ import { useSalesPriorities } from "@/contexts/SalesPrioritiesContext";
 import { useSalesStatuses } from "@/contexts/SalesStatusesContext";
 import { useSalesCourses } from "@/contexts/SalesCoursesContext";
 import { WhatsAppDialog } from "@/components/sales/leads/WhatsAppDialog";
+import { AddLeadModal } from "@/components/sales/leads/AddLeadModal";
+import { hasPermission } from "@/lib/sales-permissions";
 import { cn } from "@/lib/utils";
 
 const ACTIVITY_META: Record<
@@ -136,6 +140,7 @@ export function LeadDetail({ leadId }: Props) {
   const [flashActivityId, setFlashActivityId] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<LeadStatus | null>(null);
   const [waOpen, setWaOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const requestStatusChange = (next: LeadStatus) => {
     if (!lead || lead.status === next) return;
@@ -318,6 +323,7 @@ export function LeadDetail({ leadId }: Props) {
   const av = avatarFor(lead.full_name);
   const sm = getStatusMeta(lead.status, salesStatuses);
   const pm = priorityGetMeta(lead.priority);
+  const canEdit = hasPermission(salesUser, "leads.edit");
   const assigneeName =
     reps.find((r) => r.id === lead.assigned_to)?.full_name ?? "Unassigned";
 
@@ -373,6 +379,11 @@ export function LeadDetail({ leadId }: Props) {
                   </button>
                 )}
               </div>
+              {isAdmin && !lead.is_active && (
+                <span className="mt-2 inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+                  Inactive
+                </span>
+              )}
               <HeaderInfoChips lead={lead} assigneeName={assigneeName} />
             </div>
           </div>
@@ -441,11 +452,13 @@ export function LeadDetail({ leadId }: Props) {
                 label="Email"
               />
             )}
-            <ActionBtn
-              icon={<Edit className="h-3.5 w-3.5" />}
-              label="Edit"
-              onClick={() => toast.info("Edit info coming soon")}
-            />
+            {canEdit && (
+              <ActionBtn
+                icon={<Edit className="h-3.5 w-3.5" />}
+                label="Edit"
+                onClick={() => setEditOpen(true)}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -531,6 +544,19 @@ export function LeadDetail({ leadId }: Props) {
           setActivities((all) => [act, ...all]);
           setFlashActivityId(act.id);
           setTimeout(() => setFlashActivityId(null), 1500);
+        }}
+      />
+
+      <AddLeadModal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        lead={lead}
+        isAdmin={isAdmin}
+        currentUserId={salesUser?.id ?? ""}
+        reps={reps}
+        onUpdated={(updated) => {
+          setLead(updated);
+          setEditOpen(false);
         }}
       />
     </div>
@@ -1259,7 +1285,7 @@ function RightPanel({
   lead: Lead;
   reps: { id: string; full_name: string; role: string }[];
   isAdmin: boolean;
-  onUpdate: (patch: Partial<Lead>) => void;
+  onUpdate: (patch: Partial<Lead>) => void | Promise<void>;
   onRequestStatus: (next: LeadStatus) => void;
   pipeline: import("@/lib/leads").SalesStatus[];
 }) {
@@ -1368,6 +1394,41 @@ function RightPanel({
 
       {/* Deal value & payments */}
       <DealAndPayments lead={lead} onLeadUpdate={onUpdate} />
+
+      {/* Active status (admin) */}
+      {isAdmin && (
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-lg">
+          <p className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase text-muted-foreground">
+            {lead.is_active ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
+            Lead Visibility
+          </p>
+          <div className="mb-3 rounded-lg bg-muted/60 p-3 text-xs font-medium text-muted-foreground">
+            {lead.is_active
+              ? "Active leads are visible to assigned sales executives."
+              : "Inactive leads are visible only to sales admins."}
+          </div>
+          <Button
+            variant={lead.is_active ? "outline" : "default"}
+            className={cn(
+              "w-full",
+              lead.is_active && "border-slate-300 text-slate-700 hover:bg-slate-50",
+            )}
+            onClick={() => onUpdate({ is_active: !lead.is_active })}
+          >
+            {lead.is_active ? (
+              <>
+                <PowerOff className="mr-2 h-4 w-4" />
+                Mark Inactive
+              </>
+            ) : (
+              <>
+                <Power className="mr-2 h-4 w-4" />
+                Activate Lead
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Schedule Follow-up */}
       <div id="schedule" className="rounded-2xl border border-border bg-card p-5 shadow-lg">
