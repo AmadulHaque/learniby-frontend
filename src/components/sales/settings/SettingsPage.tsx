@@ -210,7 +210,7 @@ function UsersTab() {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                       r.role === "admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
                     }`}>
-                      {r.role === "admin" ? "Admin" : "Sales Executive"}
+                      {r.role === "admin" ? "Sales Admin" : r.role === "manager" ? "Sales Manager" : "Sales Executive"}
                     </span>
                   </td>
                   <td className="p-3">
@@ -441,7 +441,8 @@ function UserModal({ mode, row, courses, onClose, onSaved }: {
           <Field label="Role">
             <select value={role} onChange={(e) => setRole(e.target.value as "admin" | "executive")} className="input">
               <option value="executive">Sales Executive</option>
-              <option value="admin">Admin</option>
+              <option value="manager">Sales Manager</option>
+              <option value="admin">Sales Admin</option>
             </select>
           </Field>
           <Field label="Default Course">
@@ -1895,7 +1896,7 @@ function RolePermissionsTab({ onSaved }: { onSaved?: () => void }) {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-extrabold capitalize">
-                  {r.role === "admin" ? "Admin" : "Sales Executive"}
+                  {r.role === "admin" ? "Sales Admin" : r.role === "manager" ? "Sales Manager" : "Sales Executive"}
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   {perms.size} of {allKeys.length} permissions enabled
