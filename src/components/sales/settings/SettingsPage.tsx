@@ -1084,9 +1084,9 @@ function TargetsTab() {
       setReps(((r.data ?? []) as unknown as RepLite[]).map((u) => ({ id: u.id, full_name: u.full_name, role: u.role })));
       setTargets((t.data ?? []) as unknown as TargetRow[]);
       const map: Record<string, number> = {};
-      for (const row of (w.data ?? []) as unknown as { assigned_to: string | null; deal_value: number | null }[]) {
+      for (const row of (w.data ?? []) as unknown as { assigned_to: string | null }[]) {
         if (!row.assigned_to) continue;
-        map[row.assigned_to] = (map[row.assigned_to] ?? 0) + Number(row.deal_value ?? 0);
+        map[row.assigned_to] = (map[row.assigned_to] ?? 0) + 1;
       }
       setAchieved(map);
       setEdits({});
@@ -1098,9 +1098,9 @@ function TargetsTab() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [periodDate, periodType]);
 
-  const targetFor = (uid: string) => targets.find((t) => t.sales_user_id === uid)?.target_amount ?? 0;
+  const targetFor = (uid: string) => Math.max(0, Math.floor(Number(targets.find((t) => t.sales_user_id === uid)?.target_amount ?? 0)));
   const save = async (uid: string) => {
-    const v = Number(edits[uid] ?? targetFor(uid)) || 0;
+    const v = Math.max(0, Math.floor(Number(edits[uid] ?? targetFor(uid)) || 0));
     try {
       await Targets.upsert({ sales_user_id: uid, month: periodDate, period_type: periodType, target_amount: v });
       toast.success("Target saved");
@@ -1136,16 +1136,16 @@ function TargetsTab() {
           )}
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">প্রতি sales rep-এর {periodType === "month" ? "monthly" : "quarterly"} target সেট করুন। Converted lead-এর deal value থেকে achievement auto-calculate হয়।</p>
+      <p className="text-sm text-muted-foreground">প্রতি sales rep-এর {periodType === "month" ? "monthly" : "quarterly"} converted lead count target সেট করুন। Converted lead count থেকে achievement auto-calculate হয়।</p>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Total Target</div>
-          <div className="mt-1 text-xl font-extrabold">৳{totalTarget.toLocaleString("en-IN")}</div>
+          <div className="mt-1 text-xl font-extrabold">{totalTarget.toLocaleString("en-IN")} leads</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Total Achieved</div>
-          <div className="mt-1 text-xl font-extrabold text-emerald-600">৳{totalAchieved.toLocaleString("en-IN")}</div>
+          <div className="mt-1 text-xl font-extrabold text-emerald-600">{totalAchieved.toLocaleString("en-IN")} leads</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-[11px] font-bold uppercase text-muted-foreground">Overall Progress</div>
@@ -1166,8 +1166,8 @@ function TargetsTab() {
               <tr>
                 <th className="px-4 py-3">Sales Rep</th>
                 <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Target ৳</th>
-                <th className="px-4 py-3">Achieved ৳</th>
+                <th className="px-4 py-3">Target Count</th>
+                <th className="px-4 py-3">Achieved Count</th>
                 <th className="px-4 py-3">Progress</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -1186,12 +1186,13 @@ function TargetsTab() {
                       <input
                         type="number"
                         min={0}
+                        step={1}
                         value={editing ? edits[r.id] : String(tgt)}
                         onChange={(e) => setEdits((p) => ({ ...p, [r.id]: e.target.value }))}
                         className="input w-32 py-1"
                       />
                     </td>
-                    <td className="px-4 py-3 font-semibold text-emerald-600">৳{ach.toLocaleString("en-IN")}</td>
+                    <td className="px-4 py-3 font-semibold text-emerald-600">{ach.toLocaleString("en-IN")}</td>
                     <td className="px-4 py-3 min-w-[160px]">
                       <div className="flex items-center gap-2">
                         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
